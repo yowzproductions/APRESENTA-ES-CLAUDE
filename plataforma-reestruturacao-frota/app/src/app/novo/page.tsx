@@ -1,13 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { FilterOption } from "@/types/domain";
 
 export default function NovoCaso() {
-  const [status, setStatus] = useState<"idle" | "saving" | "done" | "error">(
-    "idle"
-  );
+  const router = useRouter();
+  const [status, setStatus] = useState<"idle" | "saving" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [branches, setBranches] = useState<FilterOption[]>([]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("branches")
+      .select("id, name")
+      .order("name")
+      .then(({ data }) => setBranches(data ?? []));
+  }, []);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -15,42 +26,53 @@ export default function NovoCaso() {
 
     const form = new FormData(e.currentTarget);
     const plate = String(form.get("plate") ?? "").toUpperCase().trim();
+    const chassis = String(form.get("chassis") ?? "").trim() || null;
     const model = String(form.get("model") ?? "");
     const clientName = String(form.get("clientName") ?? "");
-
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      setStatus("error");
-      setMessage(
-        "Supabase ainda não está configurado (NEXT_PUBLIC_SUPABASE_URL). Este formulário fica pronto para uso assim que o projeto for provisionado."
-      );
-      return;
-    }
+    const branchId = String(form.get("branchId") ?? "") || null;
 
     const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     const { data: vehicle, error: vErr } = await supabase
       .from("vehicles")
-      .upsert({ plate, model }, { onConflict: "plate" })
+      .upsert({ plate, chassis, model }, { onConflict: "plate" })
       .select()
       .single();
     if (vErr) return fail(vErr.message);
 
     const { data: client, error: cErr } = await supabase
       .from("clients")
-      .insert({ name: clientName })
+      .insert({ name: clientName, created_by: user?.id })
       .select()
       .single();
     if (cErr) return fail(cErr.message);
 
-    const { error: rcErr } = await supabase.from("return_cases").insert({
-      vehicle_id: vehicle.id,
-      client_id: client.id,
-      status: "cadastrado",
-    });
+    const { data: newCase, error: rcErr } = await supabase
+      .from("return_cases")
+      .insert({
+        vehicle_id: vehicle.id,
+        client_id: client.id,
+        branch_id: branchId,
+        status: "cadastrado",
+        created_by: user?.id,
+      })
+      .select()
+      .single();
     if (rcErr) return fail(rcErr.message);
 
-    setStatus("done");
-    setMessage("Caso cadastrado. O time comercial já pode agendar a devolução.");
+    await supabase.from("activity_log").insert({
+      case_id: newCase.id,
+      actor_id: user?.id,
+      actor_email: user?.email,
+      action: "cadastro_caso",
+      description: `Cadastrou o veículo ${plate} (cliente ${clientName}).`,
+    });
+
+    router.push(`/casos/${newCase.id}`);
+    router.refresh();
 
     function fail(msg: string) {
       setStatus("error");
@@ -66,14 +88,24 @@ export default function NovoCaso() {
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border bg-white p-6">
-        <div>
-          <label className="mb-1 block text-sm font-medium">Placa</label>
-          <input
-            name="plate"
-            required
-            className="w-full rounded-md border px-3 py-2 text-sm"
-            placeholder="ABC1D23"
-          />
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium">Placa</label>
+            <input
+              name="plate"
+              required
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              placeholder="ABC1D23"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Chassi</label>
+            <input
+              name="chassis"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              placeholder="opcional"
+            />
+          </div>
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium">Veículo (modelo)</label>
@@ -93,6 +125,17 @@ export default function NovoCaso() {
             placeholder="Razão social / nome do cliente"
           />
         </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Filial</label>
+          <select name="branchId" className="w-full rounded-md border px-3 py-2 text-sm">
+            <option value="">Selecione (opcional)</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <button
           type="submit"
@@ -102,15 +145,7 @@ export default function NovoCaso() {
           {status === "saving" ? "Salvando..." : "Cadastrar caso"}
         </button>
 
-        {message && (
-          <p
-            className={`text-sm ${
-              status === "error" ? "text-red-600" : "text-emerald-600"
-            }`}
-          >
-            {message}
-          </p>
-        )}
+        {message && <p className="text-sm text-red-600">{message}</p>}
       </form>
     </div>
   );

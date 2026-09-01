@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getCaseById } from "@/lib/data";
+import { getCaseActivity, getCaseById } from "@/lib/data";
 import { StatusBadge } from "@/components/StatusBadge";
 import { STAGE_ORDER } from "@/types/domain";
 
@@ -9,7 +9,10 @@ function currency(v: number | null) {
 }
 
 export default async function CaseDetail({ params }: { params: { id: string } }) {
-  const c = await getCaseById(params.id);
+  const [c, activity] = await Promise.all([
+    getCaseById(params.id),
+    getCaseActivity(params.id),
+  ]);
   if (!c) notFound();
 
   const savings =
@@ -115,6 +118,28 @@ export default async function CaseDetail({ params }: { params: { id: string } })
             Acompanhamento por item (interno/externo), com prazo e status, em{" "}
             <code>service_executions</code>.
           </p>
+        </section>
+
+        <section className="rounded-lg border bg-white p-4 md:col-span-2">
+          <h2 className="mb-3 font-medium">Histórico de movimentações</h2>
+          <ul className="space-y-2">
+            {activity.map((a) => (
+              <li key={a.id} className="flex items-start justify-between gap-4 text-sm">
+                <div>
+                  <span className="text-neutral-800">{a.description}</span>
+                  {a.actorEmail && (
+                    <span className="ml-2 text-xs text-neutral-400">por {a.actorEmail}</span>
+                  )}
+                </div>
+                <span className="whitespace-nowrap text-xs text-neutral-400">
+                  {new Date(a.createdAt).toLocaleString("pt-BR")}
+                </span>
+              </li>
+            ))}
+            {activity.length === 0 && (
+              <li className="text-sm text-neutral-400">Nenhuma movimentação registrada ainda.</li>
+            )}
+          </ul>
         </section>
       </div>
     </div>

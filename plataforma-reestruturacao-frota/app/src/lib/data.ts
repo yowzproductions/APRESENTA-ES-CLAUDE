@@ -1,36 +1,31 @@
 import { createClient } from "@/lib/supabase/server";
-import { MOCK_CASES } from "@/lib/mock-data";
-import { CaseStatus, ReturnCase } from "@/types/domain";
+import { CaseStatus, FilterOption, ReturnCase } from "@/types/domain";
 
-const SUPABASE_CONFIGURED = Boolean(
-  process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
-
-// Camada única de leitura de casos: usa Supabase quando configurado,
-// cai para dados de demonstração enquanto o projeto não está provisionado —
-// assim o scaffold nasce navegável sem depender de credenciais.
 export async function getCases(): Promise<ReturnCase[]> {
-  if (!SUPABASE_CONFIGURED) return MOCK_CASES;
-
   const supabase = createClient();
   const { data, error } = await supabase
     .from("return_cases")
     .select(
-      `id, status, scheduled_at,
-       vehicles ( plate, model ),
+      `id, status, scheduled_at, client_id, branch_id,
+       vehicles ( plate, chassis, model ),
        clients ( name ),
+       branches ( name ),
        unified_budgets ( base_total ),
        budget_optimizations ( final_total )`
     )
     .order("created_at", { ascending: false });
 
-  if (error || !data) return MOCK_CASES;
+  if (error || !data) return [];
 
   return data.map((row: any) => ({
     id: row.id,
     vehiclePlate: row.vehicles?.plate ?? "—",
+    vehicleChassis: row.vehicles?.chassis ?? null,
     vehicleModel: row.vehicles?.model ?? "—",
+    clientId: row.client_id,
     clientName: row.clients?.name ?? "—",
+    branchId: row.branch_id,
+    branchName: row.branches?.name ?? null,
     status: row.status as CaseStatus,
     scheduledAt: row.scheduled_at,
     dueAt: null,
@@ -42,4 +37,59 @@ export async function getCases(): Promise<ReturnCase[]> {
 export async function getCaseById(id: string): Promise<ReturnCase | undefined> {
   const cases = await getCases();
   return cases.find((c) => c.id === id);
+}
+
+export async function getClientOptions(): Promise<FilterOption[]> {
+  const supabase = createClient();
+  const { data } = await supabase.from("clients").select("id, name").order("name");
+  return data ?? [];
+}
+
+export async function getBranchOptions(): Promise<FilterOption[]> {
+  const supabase = createClient();
+  const { data } = await supabase.from("branches").select("id, name").order("name");
+  return data ?? [];
+}
+
+export interface ActivityEntry {
+  id: string;
+  actorEmail: string | null;
+  description: string;
+  createdAt: string;
+}
+
+// Junta o log de atividade livre (activity_log) com o histórico de troca de
+// status (case_status_history) numa única linha do tempo, mais recente
+// primeiro.
+export async function getCaseActivity(caseId: string): Promise<ActivityEntry[]> {
+  const supabase = createClient();
+
+  const [{ data: activity }, { data: statusHistory }] = await Promise.all([
+    supabase
+      .from("activity_log")
+      .select("id, actor_email, description, created_at")
+      .eq("case_id", caseId),
+    supabase
+      .from("case_status_history")
+      .select("id, to_status, changed_at, profiles ( full_name )")
+      .eq("case_id", caseId),
+  ]);
+
+  const fromActivity: ActivityEntry[] = (activity ?? []).map((a: any) => ({
+    id: a.id,
+    actorEmail: a.actor_email,
+    description: a.description,
+    createdAt: a.created_at,
+  }));
+
+  const fromStatus: ActivityEntry[] = (statusHistory ?? []).map((s: any) => ({
+    id: s.id,
+    actorEmail: s.profiles?.full_name ?? null,
+    description: `Status alterado para "${s.to_status}".`,
+    createdAt: s.changed_at,
+  }));
+
+  return [...fromActivity, ...fromStatus].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
 }
