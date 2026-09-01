@@ -30,11 +30,20 @@ export const STAGE_ORDER: { status: CaseStatus; label: string }[] = [
 export interface ReturnCase {
   id: string;
   vehiclePlate: string;
+  vehicleChassis: string | null;
   vehicleModel: string;
+  clientId: string | null;
   clientName: string;
+  branchId: string | null;
+  branchName: string | null;
   status: CaseStatus;
   scheduledAt: string | null;
   dueAt: string | null;
   baseTotal: number | null;
   finalTotal: number | null;
+}
+
+export interface FilterOption {
+  id: string;
+  name: string;
 }
