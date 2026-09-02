@@ -1,5 +1,10 @@
 import { notFound } from "next/navigation";
-import { getCaseActivity, getCaseById, getStageProgress } from "@/lib/data";
+import {
+  getCaseActivity,
+  getCaseById,
+  getStageAttachments,
+  getStageProgress,
+} from "@/lib/data";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StageStepper } from "@/components/StageStepper";
 
@@ -9,12 +14,18 @@ function currency(v: number | null) {
 }
 
 export default async function CaseDetail({ params }: { params: { id: string } }) {
-  const [c, activity, progress] = await Promise.all([
+  const [c, activity, progress, stageAttachments] = await Promise.all([
     getCaseById(params.id),
     getCaseActivity(params.id),
     getStageProgress(params.id),
+    getStageAttachments(params.id),
   ]);
   if (!c) notFound();
+
+  const attachmentsByStage: Record<string, typeof stageAttachments> = {};
+  for (const a of stageAttachments) {
+    (attachmentsByStage[a.stage] ??= []).push(a);
+  }
 
   const savings =
     c.baseTotal != null && c.finalTotal != null ? c.baseTotal - c.finalTotal : null;
@@ -38,7 +49,7 @@ export default async function CaseDetail({ params }: { params: { id: string } })
 
       <div className="mb-8">
         <h2 className="mb-3 font-medium text-ekotruck-darkGreen">Progresso do caso</h2>
-        <StageStepper caseId={c.id} progress={progress} />
+        <StageStepper caseId={c.id} progress={progress} attachments={attachmentsByStage} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
