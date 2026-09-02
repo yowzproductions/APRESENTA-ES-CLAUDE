@@ -17,7 +17,7 @@ export type CaseStatus =
 
 export const STAGE_ORDER: { status: CaseStatus; label: string }[] = [
   { status: "cadastrado", label: "Cadastro" },
-  { status: "agendado", label: "Agendamento" },
+  { status: "agendado", label: "Programação de Entrega" },
   { status: "vistoria_em_andamento", label: "Vistoria" },
   { status: "inspecao_mecanica_em_andamento", label: "Inspeção Mecânica" },
   { status: "orcamento_unificado", label: "Orçamento Unificado" },
