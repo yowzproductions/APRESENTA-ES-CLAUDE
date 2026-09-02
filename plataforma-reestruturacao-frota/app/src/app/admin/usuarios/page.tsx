@@ -28,7 +28,7 @@ export default async function AdminUsuarios() {
   if (myProfile?.role !== "admin") {
     return (
       <div className="mx-auto max-w-lg rounded-lg border bg-white p-6 text-center">
-        <p className="text-sm text-neutral-600">
+        <p className="text-sm text-ekotruck-gray">
           Esta página é restrita a administradores.
         </p>
       </div>
@@ -43,7 +43,7 @@ export default async function AdminUsuarios() {
   return (
     <div>
       <h1 className="mb-1 text-xl font-semibold">Usuários</h1>
-      <p className="mb-6 text-sm text-neutral-500">
+      <p className="mb-6 text-sm text-ekotruck-gray">
         Convide novos usuários por e-mail. No primeiro acesso, cada um define a
         própria senha pelo link recebido.
       </p>
@@ -52,7 +52,7 @@ export default async function AdminUsuarios() {
 
       <div className="mt-8 overflow-hidden rounded-lg border bg-white">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-left text-xs uppercase text-neutral-500">
+          <thead className="bg-ekotruck-darkGreen/5 text-left text-xs uppercase text-ekotruck-gray">
             <tr>
               <th className="px-4 py-2">Nome</th>
               <th className="px-4 py-2">Papel</th>
@@ -68,14 +68,14 @@ export default async function AdminUsuarios() {
                   {p.role ? ROLE_LABELS[p.role] ?? p.role : "—"}
                 </td>
                 <td className="px-4 py-2 capitalize">{p.status}</td>
-                <td className="px-4 py-2 text-neutral-500">
+                <td className="px-4 py-2 text-ekotruck-gray">
                   {p.invited_at ? new Date(p.invited_at).toLocaleDateString("pt-BR") : "—"}
                 </td>
               </tr>
             ))}
             {(!profiles || profiles.length === 0) && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-neutral-400">
+                <td colSpan={4} className="px-4 py-6 text-center text-ekotruck-gray">
                   Nenhum usuário ainda.
                 </td>
               </tr>

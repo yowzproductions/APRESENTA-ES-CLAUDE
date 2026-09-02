@@ -19,22 +19,22 @@ export default async function Impacto() {
   return (
     <div>
       <h1 className="mb-1 text-xl font-semibold">Impacto financeiro da moderação</h1>
-      <p className="mb-6 text-sm text-neutral-500">
+      <p className="mb-6 text-sm text-ekotruck-gray">
         Comparativo entre orçamento base (checklist + inspeção mecânica) e
         orçamento final (pós-otimização).
       </p>
 
       <div className="mb-6 grid grid-cols-3 gap-4">
         <div className="rounded-lg border bg-white p-4 text-center">
-          <p className="text-xs text-neutral-500">Total orçamento base</p>
+          <p className="text-xs text-ekotruck-gray">Total orçamento base</p>
           <p className="text-lg font-semibold">{currency(totalBase)}</p>
         </div>
         <div className="rounded-lg border bg-white p-4 text-center">
-          <p className="text-xs text-neutral-500">Total orçamento final</p>
+          <p className="text-xs text-ekotruck-gray">Total orçamento final</p>
           <p className="text-lg font-semibold">{currency(totalFinal)}</p>
         </div>
         <div className="rounded-lg border bg-white p-4 text-center">
-          <p className="text-xs text-neutral-500">Economia total</p>
+          <p className="text-xs text-ekotruck-gray">Economia total</p>
           <p className="text-lg font-semibold text-emerald-600">
             {currency(totalSavings)}
           </p>
@@ -43,7 +43,7 @@ export default async function Impacto() {
 
       <div className="overflow-hidden rounded-lg border bg-white">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-left text-xs uppercase text-neutral-500">
+          <thead className="bg-ekotruck-darkGreen/5 text-left text-xs uppercase text-ekotruck-gray">
             <tr>
               <th className="px-4 py-2">Placa</th>
               <th className="px-4 py-2">Cliente</th>
