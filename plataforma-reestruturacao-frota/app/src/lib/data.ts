@@ -39,6 +39,34 @@ export async function getCaseById(id: string): Promise<ReturnCase | undefined> {
   return cases.find((c) => c.id === id);
 }
 
+export type StageState = "pendente" | "em_andamento" | "concluido" | "nao_se_aplica";
+
+export interface StageProgress {
+  stage: string;
+  state: StageState;
+  dueAt: string | null;
+  completedAt: string | null;
+}
+
+export async function getStageProgress(caseId: string): Promise<Record<string, StageProgress>> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("case_stage_progress")
+    .select("stage, state, due_at, completed_at")
+    .eq("case_id", caseId);
+
+  const map: Record<string, StageProgress> = {};
+  for (const row of data ?? []) {
+    map[row.stage] = {
+      stage: row.stage,
+      state: row.state,
+      dueAt: row.due_at,
+      completedAt: row.completed_at,
+    };
+  }
+  return map;
+}
+
 export async function getClientOptions(): Promise<FilterOption[]> {
   const supabase = createClient();
   const { data } = await supabase.from("clients").select("id, name").order("name");

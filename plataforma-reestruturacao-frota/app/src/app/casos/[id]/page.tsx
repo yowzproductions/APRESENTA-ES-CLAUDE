@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
-import { getCaseActivity, getCaseById } from "@/lib/data";
+import { getCaseActivity, getCaseById, getStageProgress } from "@/lib/data";
 import { StatusBadge } from "@/components/StatusBadge";
-import { STAGE_ORDER } from "@/types/domain";
+import { StageStepper } from "@/components/StageStepper";
 
 function currency(v: number | null) {
   if (v == null) return "—";
@@ -9,9 +9,10 @@ function currency(v: number | null) {
 }
 
 export default async function CaseDetail({ params }: { params: { id: string } }) {
-  const [c, activity] = await Promise.all([
+  const [c, activity, progress] = await Promise.all([
     getCaseById(params.id),
     getCaseActivity(params.id),
+    getStageProgress(params.id),
   ]);
   if (!c) notFound();
 
@@ -35,48 +36,12 @@ export default async function CaseDetail({ params }: { params: { id: string } })
         </div>
       </div>
 
-      {/* Linha do tempo das etapas */}
-      <div className="mb-8 flex items-center gap-1 overflow-x-auto rounded-lg border bg-white p-4">
-        {STAGE_ORDER.map((stage, i) => (
-          <div key={stage.status} className="flex items-center">
-            <span className="whitespace-nowrap rounded-full border px-3 py-1 text-xs text-ekotruck-gray">
-              {stage.label}
-            </span>
-            {i < STAGE_ORDER.length - 1 && (
-              <span className="mx-1 text-neutral-300">→</span>
-            )}
-          </div>
-        ))}
+      <div className="mb-8">
+        <h2 className="mb-3 font-medium text-ekotruck-darkGreen">Progresso do caso</h2>
+        <StageStepper caseId={c.id} progress={progress} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <section className="rounded-lg border bg-white p-4">
-          <h2 className="mb-2 font-medium">Agendamento</h2>
-          <p className="text-sm text-ekotruck-gray">
-            Data de recebimento:{" "}
-            {c.scheduledAt
-              ? new Date(c.scheduledAt).toLocaleString("pt-BR")
-              : "ainda não agendado"}
-          </p>
-        </section>
-
-        <section className="rounded-lg border bg-white p-4">
-          <h2 className="mb-2 font-medium">Vistoria de recebimento</h2>
-          <p className="text-sm text-ekotruck-gray">
-            Checklist com avarias, custo estimado e assinatura do responsável pela
-            entrega. (itens ficam em <code>inspection_checklists</code> /{" "}
-            <code>checklist_items</code>)
-          </p>
-        </section>
-
-        <section className="rounded-lg border bg-white p-4">
-          <h2 className="mb-2 font-medium">Inspeção mecânica</h2>
-          <p className="text-sm text-ekotruck-gray">
-            Orçamento técnico da oficina. (<code>mechanical_inspections</code> /{" "}
-            <code>mechanical_items</code>)
-          </p>
-        </section>
-
         <section className="rounded-lg border bg-white p-4">
           <h2 className="mb-2 font-medium">Orçamento unificado</h2>
           <p className="text-sm text-ekotruck-gray">
@@ -85,39 +50,22 @@ export default async function CaseDetail({ params }: { params: { id: string } })
           <p className="mt-1 text-lg font-semibold">{currency(c.baseTotal)}</p>
         </section>
 
-        <section className="rounded-lg border bg-white p-4 md:col-span-2">
+        <section className="rounded-lg border bg-white p-4">
           <h2 className="mb-2 font-medium">Otimização de orçamento — impacto</h2>
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-xs text-ekotruck-gray">Orçamento base</p>
-              <p className="text-lg font-semibold">{currency(c.baseTotal)}</p>
+              <p className="text-xs text-ekotruck-gray">Base</p>
+              <p className="text-sm font-semibold">{currency(c.baseTotal)}</p>
             </div>
             <div>
-              <p className="text-xs text-ekotruck-gray">Orçamento final</p>
-              <p className="text-lg font-semibold">{currency(c.finalTotal)}</p>
+              <p className="text-xs text-ekotruck-gray">Final</p>
+              <p className="text-sm font-semibold">{currency(c.finalTotal)}</p>
             </div>
             <div>
-              <p className="text-xs text-ekotruck-gray">Economia gerada</p>
-              <p className="text-lg font-semibold text-emerald-600">
-                {currency(savings)}
-              </p>
+              <p className="text-xs text-ekotruck-gray">Economia</p>
+              <p className="text-sm font-semibold text-emerald-600">{currency(savings)}</p>
             </div>
           </div>
-          <p className="mt-3 text-xs text-ekotruck-gray">
-            Histórico de itens removidos (com responsável + justificativa) e de
-            peças substituídas (original × substituta, marca, preço, origem
-            estoque Ekotruck/Spot e fornecedor) fica em{" "}
-            <code>optimization_removed_items</code> e{" "}
-            <code>optimization_part_substitutions</code>.
-          </p>
-        </section>
-
-        <section className="rounded-lg border bg-white p-4 md:col-span-2">
-          <h2 className="mb-2 font-medium">Execução dos serviços</h2>
-          <p className="text-sm text-ekotruck-gray">
-            Acompanhamento por item (interno/externo), com prazo e status, em{" "}
-            <code>service_executions</code>.
-          </p>
         </section>
 
         <section className="rounded-lg border bg-white p-4 md:col-span-2">
