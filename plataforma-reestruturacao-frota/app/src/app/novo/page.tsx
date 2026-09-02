@@ -10,6 +10,7 @@ export default function NovoCaso() {
   const [status, setStatus] = useState<"idle" | "saving" | "error">("idle");
   const [message, setMessage] = useState("");
   const [branches, setBranches] = useState<FilterOption[]>([]);
+  const [clients, setClients] = useState<FilterOption[]>([]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -18,6 +19,11 @@ export default function NovoCaso() {
       .select("id, name")
       .order("name")
       .then(({ data }) => setBranches(data ?? []));
+    supabase
+      .from("clients")
+      .select("id, name")
+      .order("name")
+      .then(({ data }) => setClients(data ?? []));
   }, []);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -28,8 +34,10 @@ export default function NovoCaso() {
     const plate = String(form.get("plate") ?? "").toUpperCase().trim();
     const chassis = String(form.get("chassis") ?? "").trim() || null;
     const model = String(form.get("model") ?? "");
-    const clientName = String(form.get("clientName") ?? "");
+    const clientId = String(form.get("clientId") ?? "");
     const branchId = String(form.get("branchId") ?? "") || null;
+
+    if (!clientId) return fail("Selecione um cliente (cadastre um novo em Clientes/Frotas se precisar).");
 
     const supabase = createClient();
     const {
@@ -43,18 +51,11 @@ export default function NovoCaso() {
       .single();
     if (vErr) return fail(vErr.message);
 
-    const { data: client, error: cErr } = await supabase
-      .from("clients")
-      .insert({ name: clientName, created_by: user?.id })
-      .select()
-      .single();
-    if (cErr) return fail(cErr.message);
-
     const { data: newCase, error: rcErr } = await supabase
       .from("return_cases")
       .insert({
         vehicle_id: vehicle.id,
-        client_id: client.id,
+        client_id: clientId,
         branch_id: branchId,
         status: "cadastrado",
         created_by: user?.id,
@@ -68,7 +69,7 @@ export default function NovoCaso() {
       actor_id: user?.id,
       actor_email: user?.email,
       action: "cadastro_caso",
-      description: `Cadastrou o veículo ${plate} (cliente ${clientName}).`,
+      description: `Cadastrou o veículo ${plate}.`,
     });
 
     router.push(`/casos/${newCase.id}`);
@@ -82,9 +83,12 @@ export default function NovoCaso() {
 
   return (
     <div className="mx-auto max-w-lg">
-      <h1 className="mb-1 text-xl font-semibold">Novo cadastro de devolução</h1>
+      <h1 className="mb-1 text-xl font-semibold text-ekotruck-darkGreen">
+        Novo cadastro de devolução
+      </h1>
       <p className="mb-6 text-sm text-ekotruck-gray">
-        Time comercial: registre o veículo e o cliente que irá devolvê-lo.
+        Time comercial: registre o veículo, o cliente e a filial que vai
+        receber a devolução.
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border bg-white p-6">
@@ -117,16 +121,36 @@ export default function NovoCaso() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Cliente</label>
-          <input
-            name="clientName"
-            required
-            className="w-full rounded-md border px-3 py-2 text-sm"
-            placeholder="Razão social / nome do cliente"
-          />
+          <div className="mb-1 flex items-center justify-between">
+            <label className="block text-sm font-medium">Cliente / Frota</label>
+            <a
+              href="/clientes"
+              target="_blank"
+              className="text-xs text-ekotruck-orange hover:underline"
+            >
+              + novo cliente
+            </a>
+          </div>
+          <select name="clientId" required className="w-full rounded-md border px-3 py-2 text-sm">
+            <option value="">Selecione...</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Filial</label>
+          <div className="mb-1 flex items-center justify-between">
+            <label className="block text-sm font-medium">Filial</label>
+            <a
+              href="/filiais"
+              target="_blank"
+              className="text-xs text-ekotruck-orange hover:underline"
+            >
+              + nova filial
+            </a>
+          </div>
           <select name="branchId" className="w-full rounded-md border px-3 py-2 text-sm">
             <option value="">Selecione (opcional)</option>
             {branches.map((b) => (
