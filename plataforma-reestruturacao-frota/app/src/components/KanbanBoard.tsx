@@ -28,15 +28,15 @@ export function KanbanBoard({ cases }: { cases: ReturnCase[] }) {
       {columns.map((col) => (
         <div key={col.status} className="w-72 shrink-0">
           <div className="mb-2 flex items-center justify-between px-1">
-            <h3 className="text-sm font-semibold text-neutral-700">{col.label}</h3>
-            <span className="text-xs text-neutral-400">{col.cases.length}</span>
+            <h3 className="text-sm font-semibold text-ekotruck-darkGreen">{col.label}</h3>
+            <span className="text-xs text-ekotruck-gray">{col.cases.length}</span>
           </div>
-          <div className="flex flex-col gap-2 rounded-lg bg-neutral-100 p-2 min-h-[120px]">
+          <div className="flex flex-col gap-2 rounded-lg bg-ekotruck-darkGreen/5 p-2 min-h-[120px]">
             {col.cases.map((c) => (
               <a
                 key={c.id}
                 href={`/casos/${c.id}`}
-                className="block rounded-md border bg-white p-3 shadow-sm hover:border-ekotruck-orange"
+                className="block rounded-md border border-ekotruck-darkGreen/10 bg-white p-3 shadow-sm hover:border-ekotruck-orange"
               >
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{c.vehiclePlate}</span>
@@ -46,20 +46,20 @@ export function KanbanBoard({ cases }: { cases: ReturnCase[] }) {
                     </span>
                   )}
                 </div>
-                <p className="mt-0.5 text-xs text-neutral-500">{c.vehicleModel}</p>
-                <p className="text-xs text-neutral-500">{c.clientName}</p>
+                <p className="mt-0.5 text-xs text-ekotruck-gray">{c.vehicleModel}</p>
+                <p className="text-xs text-ekotruck-gray">{c.clientName}</p>
                 <div className="mt-2">
                   <StatusBadge status={c.status} />
                 </div>
                 {c.dueAt && (
-                  <p className="mt-2 text-[11px] text-neutral-400">
+                  <p className="mt-2 text-[11px] text-ekotruck-gray">
                     Prazo: {new Date(c.dueAt).toLocaleDateString("pt-BR")}
                   </p>
                 )}
               </a>
             ))}
             {col.cases.length === 0 && (
-              <p className="px-1 py-4 text-center text-xs text-neutral-400">
+              <p className="px-1 py-4 text-center text-xs text-ekotruck-gray">
                 Nenhum caso
               </p>
             )}

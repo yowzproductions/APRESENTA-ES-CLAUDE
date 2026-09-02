@@ -43,10 +43,10 @@ export default function DefinirSenha() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-neutral-100 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-ekotruck-light px-4">
       <div className="w-full max-w-sm rounded-lg border bg-white p-6 shadow-sm">
         <h1 className="mb-1 text-lg font-semibold">Defina sua senha</h1>
-        <p className="mb-6 text-sm text-neutral-500">
+        <p className="mb-6 text-sm text-ekotruck-gray">
           Escolha a senha que vai usar para acessar a plataforma.
         </p>
 

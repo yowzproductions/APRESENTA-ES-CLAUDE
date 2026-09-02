@@ -5,9 +5,9 @@ import { StatusBadge } from "./StatusBadge";
 // (placa ou chassi, cliente, filial, status).
 export function ListView({ cases }: { cases: ReturnCase[] }) {
   return (
-    <div className="overflow-hidden rounded-lg border bg-white">
+    <div className="overflow-hidden rounded-lg border border-ekotruck-darkGreen/10 bg-white">
       <table className="w-full text-sm">
-        <thead className="bg-neutral-50 text-left text-xs uppercase text-neutral-500">
+        <thead className="bg-ekotruck-darkGreen/5 text-left text-xs uppercase text-ekotruck-gray">
           <tr>
             <th className="px-4 py-2">Placa / Chassi</th>
             <th className="px-4 py-2">Cliente</th>
@@ -17,17 +17,17 @@ export function ListView({ cases }: { cases: ReturnCase[] }) {
         </thead>
         <tbody>
           {cases.map((c) => (
-            <tr key={c.id} className="border-t hover:bg-neutral-50">
+            <tr key={c.id} className="border-t border-ekotruck-darkGreen/10 hover:bg-ekotruck-light">
               <td className="px-4 py-2">
                 <a href={`/casos/${c.id}`} className="font-medium hover:underline">
                   {c.vehiclePlate}
                 </a>
                 {c.vehicleChassis && (
-                  <span className="ml-2 text-xs text-neutral-400">{c.vehicleChassis}</span>
+                  <span className="ml-2 text-xs text-ekotruck-gray">{c.vehicleChassis}</span>
                 )}
               </td>
               <td className="px-4 py-2">{c.clientName}</td>
-              <td className="px-4 py-2 text-neutral-500">{c.branchName ?? "—"}</td>
+              <td className="px-4 py-2 text-ekotruck-gray">{c.branchName ?? "—"}</td>
               <td className="px-4 py-2">
                 <StatusBadge status={c.status} />
               </td>
@@ -35,7 +35,7 @@ export function ListView({ cases }: { cases: ReturnCase[] }) {
           ))}
           {cases.length === 0 && (
             <tr>
-              <td colSpan={4} className="px-4 py-6 text-center text-neutral-400">
+              <td colSpan={4} className="px-4 py-6 text-center text-ekotruck-gray">
                 Nenhum caso encontrado.
               </td>
             </tr>
