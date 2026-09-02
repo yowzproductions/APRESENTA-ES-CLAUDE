@@ -53,12 +53,12 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-neutral-100 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-ekotruck-light px-4">
       <div className="w-full max-w-sm rounded-lg border bg-white p-6 shadow-sm">
         <h1 className="mb-1 text-lg font-semibold">
           <span className="text-ekotruck-orange">●</span> Reestruturação de Frota
         </h1>
-        <p className="mb-6 text-sm text-neutral-500">Entre com seu e-mail e senha.</p>
+        <p className="mb-6 text-sm text-ekotruck-gray">Entre com seu e-mail e senha.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -94,7 +94,7 @@ export default function Login() {
           <button
             type="button"
             onClick={handleForgotPassword}
-            className="w-full text-center text-xs text-neutral-500 hover:text-neutral-800 hover:underline"
+            className="w-full text-center text-xs text-ekotruck-gray hover:text-ekotruck-darkGreen hover:underline"
           >
             Esqueci minha senha
           </button>

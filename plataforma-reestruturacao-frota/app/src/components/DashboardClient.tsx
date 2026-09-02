@@ -32,8 +32,10 @@ export function DashboardClient({
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Workflow de devolução de frota</h1>
-          <p className="text-sm text-neutral-500">
+          <h1 className="text-xl font-semibold text-ekotruck-darkGreen">
+            Workflow de devolução de frota
+          </h1>
+          <p className="text-sm text-ekotruck-gray">
             {filtered.length} caso(s) — {view === "kanban" ? "visão por etapa" : "lista compacta"}
           </p>
         </div>
@@ -46,11 +48,11 @@ export function DashboardClient({
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex rounded-md border bg-white p-0.5 text-sm">
+        <div className="flex rounded-md border border-ekotruck-darkGreen/15 bg-white p-0.5 text-sm">
           <button
             onClick={() => setView("kanban")}
             className={`rounded px-3 py-1.5 ${
-              view === "kanban" ? "bg-ekotruck-orange text-white" : "text-neutral-600"
+              view === "kanban" ? "bg-ekotruck-orange text-white" : "text-ekotruck-gray"
             }`}
           >
             Kanban
@@ -58,7 +60,7 @@ export function DashboardClient({
           <button
             onClick={() => setView("lista")}
             className={`rounded px-3 py-1.5 ${
-              view === "lista" ? "bg-ekotruck-orange text-white" : "text-neutral-600"
+              view === "lista" ? "bg-ekotruck-orange text-white" : "text-ekotruck-gray"
             }`}
           >
             Lista
@@ -68,7 +70,7 @@ export function DashboardClient({
         <select
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
-          className="rounded-md border px-3 py-1.5 text-sm"
+          className="rounded-md border border-ekotruck-darkGreen/15 px-3 py-1.5 text-sm"
         >
           <option value="">Todos os clientes</option>
           {clients.map((c) => (
@@ -81,7 +83,7 @@ export function DashboardClient({
         <select
           value={branchId}
           onChange={(e) => setBranchId(e.target.value)}
-          className="rounded-md border px-3 py-1.5 text-sm"
+          className="rounded-md border border-ekotruck-darkGreen/15 px-3 py-1.5 text-sm"
         >
           <option value="">Todas as filiais</option>
           {branches.map((b) => (

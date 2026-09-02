@@ -26,32 +26,32 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang="pt-BR">
-      <body className="min-h-screen text-neutral-900">
-        <header className="border-b bg-white px-6 py-4">
+      <body className="min-h-screen bg-ekotruck-light text-ekotruck-darkGreen">
+        <header className="border-b border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen px-6 py-4">
           <div className="mx-auto flex max-w-7xl items-center justify-between">
-            <a href="/" className="font-semibold tracking-tight">
+            <a href="/" className="font-semibold tracking-tight text-ekotruck-light">
               <span className="text-ekotruck-orange">●</span> Reestruturação de
               Frota
             </a>
-            <nav className="flex items-center gap-4 text-sm text-neutral-600">
+            <nav className="flex items-center gap-4 text-sm text-ekotruck-mint">
               {user && (
                 <>
-                  <a href="/" className="hover:text-neutral-900">
+                  <a href="/" className="hover:text-white">
                     Workflow
                   </a>
-                  <a href="/novo" className="hover:text-neutral-900">
+                  <a href="/novo" className="hover:text-white">
                     Novo caso
                   </a>
-                  <a href="/impacto" className="hover:text-neutral-900">
+                  <a href="/impacto" className="hover:text-white">
                     Impacto financeiro
                   </a>
                   {isAdmin && (
-                    <a href="/admin/usuarios" className="hover:text-neutral-900">
+                    <a href="/admin/usuarios" className="hover:text-white">
                       Usuários
                     </a>
                   )}
-                  <span className="mx-1 h-4 w-px bg-neutral-200" />
-                  <span className="text-neutral-400">{user.email}</span>
+                  <span className="mx-1 h-4 w-px bg-ekotruck-light/20" />
+                  <span className="text-ekotruck-light/60">{user.email}</span>
                   <SignOutButton />
                 </>
               )}

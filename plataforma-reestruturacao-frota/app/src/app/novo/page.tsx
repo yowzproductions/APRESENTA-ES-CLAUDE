@@ -83,7 +83,7 @@ export default function NovoCaso() {
   return (
     <div className="mx-auto max-w-lg">
       <h1 className="mb-1 text-xl font-semibold">Novo cadastro de devolução</h1>
-      <p className="mb-6 text-sm text-neutral-500">
+      <p className="mb-6 text-sm text-ekotruck-gray">
         Time comercial: registre o veículo e o cliente que irá devolvê-lo.
       </p>
 
