@@ -1,8 +1,13 @@
 import { ReturnCase } from "@/types/domain";
 import { StatusBadge } from "./StatusBadge";
 
+function isOverdue(dueAt: string | null) {
+  if (!dueAt) return false;
+  return new Date(dueAt).getTime() < Date.now();
+}
+
 // Visão compacta: uma linha por caso, só o essencial para achar rápido
-// (placa ou chassi, cliente, filial, status).
+// (placa ou chassi, cliente, filial, status, prazo da etapa atual).
 export function ListView({ cases }: { cases: ReturnCase[] }) {
   return (
     <div className="overflow-hidden rounded-lg border border-ekotruck-darkGreen/10 bg-white">
@@ -13,6 +18,7 @@ export function ListView({ cases }: { cases: ReturnCase[] }) {
             <th className="px-4 py-2">Cliente</th>
             <th className="px-4 py-2">Filial</th>
             <th className="px-4 py-2">Status</th>
+            <th className="px-4 py-2">Prazo da etapa</th>
           </tr>
         </thead>
         <tbody>
@@ -31,11 +37,27 @@ export function ListView({ cases }: { cases: ReturnCase[] }) {
               <td className="px-4 py-2">
                 <StatusBadge status={c.status} />
               </td>
+              <td className="px-4 py-2">
+                {c.dueAt ? (
+                  <span
+                    className={
+                      isOverdue(c.dueAt)
+                        ? "rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700"
+                        : "text-xs text-ekotruck-gray"
+                    }
+                  >
+                    {new Date(c.dueAt).toLocaleString("pt-BR")}
+                    {isOverdue(c.dueAt) && " · atrasado"}
+                  </span>
+                ) : (
+                  <span className="text-xs text-ekotruck-gray">—</span>
+                )}
+              </td>
             </tr>
           ))}
           {cases.length === 0 && (
             <tr>
-              <td colSpan={4} className="px-4 py-6 text-center text-ekotruck-gray">
+              <td colSpan={5} className="px-4 py-6 text-center text-ekotruck-gray">
                 Nenhum caso encontrado.
               </td>
             </tr>

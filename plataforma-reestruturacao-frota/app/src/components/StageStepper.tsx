@@ -1,10 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CaseStatus, STAGE_ORDER } from "@/types/domain";
-import { StageProgress, StageState } from "@/lib/data";
+import { StageAttachment, StageProgress, StageState } from "@/lib/data";
 
 const STATE_LABEL: Record<StageState, string> = {
   pendente: "Pendente",
@@ -20,6 +20,12 @@ const STATE_COLOR: Record<StageState, string> = {
   nao_se_aplica: "bg-neutral-200 text-neutral-500",
 };
 
+// Etapas que exigem anexo (ex.: laudo da vistoria) antes de poder concluir.
+// Fácil de estender: basta adicionar a chave da etapa (CaseStatus) aqui.
+const REQUIRES_ATTACHMENT: Partial<Record<CaseStatus, string>> = {
+  vistoria_em_andamento: "Anexe o arquivo da vistoria realizada para concluir esta etapa.",
+};
+
 function fmt(d: string | null) {
   if (!d) return null;
   return new Date(d).toLocaleString("pt-BR");
@@ -28,13 +34,17 @@ function fmt(d: string | null) {
 export function StageStepper({
   caseId,
   progress,
+  attachments,
 }: {
   caseId: string;
   progress: Record<string, StageProgress>;
+  attachments: Record<string, StageAttachment[]>;
 }) {
   const router = useRouter();
   const [busyStage, setBusyStage] = useState<string | null>(null);
   const [dueDrafts, setDueDrafts] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Etapa 0 (cadastro) é implicitamente concluída pela própria existência do
   // caso — não exige linha em case_stage_progress.
@@ -47,19 +57,57 @@ export function StageStepper({
     (s, i) => !["concluido", "nao_se_aplica"].includes(effective(s.status, i))
   );
 
+  async function openAttachment(path: string) {
+    const supabase = createClient();
+    const { data } = await supabase.storage
+      .from("case-attachments")
+      .createSignedUrl(path, 60);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+  }
+
   async function updateStage(
     stage: CaseStatus,
     index: number,
-    state: "concluido" | "nao_se_aplica",
-    dueAtOverride?: string
+    state: "concluido" | "nao_se_aplica"
   ) {
+    setError(null);
+
+    const requiredMessage = REQUIRES_ATTACHMENT[stage];
+    const hasExisting = (attachments[stage]?.length ?? 0) > 0;
+    const fileInput = fileInputRefs.current[stage];
+    const file = fileInput?.files?.[0];
+
+    if (state === "concluido" && requiredMessage && !hasExisting && !file) {
+      setError(requiredMessage);
+      return;
+    }
+
     setBusyStage(stage);
     const supabase = createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    const dueAt = dueAtOverride ?? dueDrafts[stage] ?? progress[stage]?.dueAt ?? null;
+    if (file) {
+      const path = `${caseId}/${stage}/${Date.now()}-${file.name}`;
+      const { error: upErr } = await supabase.storage
+        .from("case-attachments")
+        .upload(path, file);
+      if (upErr) {
+        setError(upErr.message);
+        setBusyStage(null);
+        return;
+      }
+      await supabase.from("attachments").insert({
+        related_table: "return_cases",
+        related_id: caseId,
+        stage,
+        url: path,
+        uploaded_by: user?.id,
+      });
+    }
+
+    const dueAt = dueDrafts[stage] ?? progress[stage]?.dueAt ?? null;
 
     await supabase.from("case_stage_progress").upsert(
       {
@@ -100,7 +148,7 @@ export function StageStepper({
       description:
         state === "nao_se_aplica"
           ? `Marcou a etapa "${STAGE_ORDER[index].label}" como não se aplica.`
-          : `Concluiu a etapa "${STAGE_ORDER[index].label}".`,
+          : `Concluiu a etapa "${STAGE_ORDER[index].label}"${file ? " (com anexo)" : ""}.`,
     });
 
     setBusyStage(null);
@@ -134,29 +182,45 @@ export function StageStepper({
     <div className="space-y-3">
       {STAGE_ORDER.map((s, i) => {
         const state = effective(s.status, i);
-        const isActive = i === activeIndex;
         const isLocked = activeIndex !== -1 && i > activeIndex;
         const p = progress[s.status];
+        const stageFiles = attachments[s.status] ?? [];
 
         if (state === "concluido" || state === "nao_se_aplica") {
           return (
             <div
               key={s.status}
-              className="flex items-center justify-between rounded-lg border border-ekotruck-darkGreen/10 bg-white px-4 py-3"
+              className="rounded-lg border border-ekotruck-darkGreen/10 bg-white px-4 py-3"
             >
-              <div>
-                <span className="font-medium">{s.label}</span>
-                {p?.dueAt && (
-                  <span className="ml-2 text-xs text-ekotruck-gray">
-                    prazo: {fmt(p.dueAt)}
-                  </span>
-                )}
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-medium">{s.label}</span>
+                  {p?.dueAt && (
+                    <span className="ml-2 text-xs text-ekotruck-gray">
+                      prazo: {fmt(p.dueAt)}
+                    </span>
+                  )}
+                </div>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATE_COLOR[state]}`}
+                >
+                  {STATE_LABEL[state]}
+                </span>
               </div>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATE_COLOR[state]}`}
-              >
-                {STATE_LABEL[state]}
-              </span>
+              {stageFiles.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {stageFiles.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => openAttachment(f.url)}
+                      className="text-xs text-ekotruck-orange hover:underline"
+                    >
+                      📎 anexo ({new Date(f.uploadedAt).toLocaleDateString("pt-BR")})
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           );
         }
@@ -174,6 +238,8 @@ export function StageStepper({
         }
 
         // etapa ativa e editável
+        const requiredMessage = REQUIRES_ATTACHMENT[s.status];
+
         return (
           <div
             key={s.status}
@@ -185,6 +251,35 @@ export function StageStepper({
                 Etapa atual
               </span>
             </div>
+
+            {requiredMessage && (
+              <div className="mb-3">
+                <label className="mb-1 block text-xs font-medium">
+                  Anexo da etapa {stageFiles.length > 0 ? "(já enviado, opcional trocar)" : "(obrigatório para concluir)"}
+                </label>
+                <input
+                  type="file"
+                  ref={(el) => {
+                    fileInputRefs.current[s.status] = el;
+                  }}
+                  className="block text-sm"
+                />
+                {stageFiles.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {stageFiles.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => openAttachment(f.url)}
+                        className="text-xs text-ekotruck-orange hover:underline"
+                      >
+                        📎 ver anexo atual
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex flex-wrap items-end gap-3">
               <div>
@@ -226,6 +321,10 @@ export function StageStepper({
                 </button>
               </div>
             </div>
+
+            {error && i === activeIndex && (
+              <p className="mt-2 text-sm text-red-600">{error}</p>
+            )}
           </div>
         );
       })}

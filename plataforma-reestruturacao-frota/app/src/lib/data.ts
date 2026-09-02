@@ -17,6 +17,18 @@ export async function getCases(): Promise<ReturnCase[]> {
 
   if (error || !data) return [];
 
+  const ids = data.map((row: any) => row.id);
+  const { data: progressRows } = await supabase
+    .from("case_stage_progress")
+    .select("case_id, stage, due_at")
+    .in("case_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+
+  // Prazo relevante para o workflow: o da etapa em que o caso está agora.
+  const dueByCase = new Map<string, string>();
+  for (const p of progressRows ?? []) {
+    if (p.due_at) dueByCase.set(`${p.case_id}:${p.stage}`, p.due_at);
+  }
+
   return data.map((row: any) => ({
     id: row.id,
     vehiclePlate: row.vehicles?.plate ?? "—",
@@ -28,7 +40,7 @@ export async function getCases(): Promise<ReturnCase[]> {
     branchName: row.branches?.name ?? null,
     status: row.status as CaseStatus,
     scheduledAt: row.scheduled_at,
-    dueAt: null,
+    dueAt: dueByCase.get(`${row.id}:${row.status}`) ?? null,
     baseTotal: row.unified_budgets?.[0]?.base_total ?? null,
     finalTotal: row.budget_optimizations?.[0]?.final_total ?? null,
   }));
@@ -65,6 +77,29 @@ export async function getStageProgress(caseId: string): Promise<Record<string, S
     };
   }
   return map;
+}
+
+export interface StageAttachment {
+  id: string;
+  stage: string;
+  url: string;
+  uploadedAt: string;
+}
+
+export async function getStageAttachments(caseId: string): Promise<StageAttachment[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("attachments")
+    .select("id, stage, url, uploaded_at")
+    .eq("related_table", "return_cases")
+    .eq("related_id", caseId);
+
+  return (data ?? []).map((a) => ({
+    id: a.id,
+    stage: a.stage,
+    url: a.url,
+    uploadedAt: a.uploaded_at,
+  }));
 }
 
 export async function getClientOptions(): Promise<FilterOption[]> {
