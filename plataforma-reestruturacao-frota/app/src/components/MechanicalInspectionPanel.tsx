@@ -1,11 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ParsedBudgetItem } from "@/lib/parseBudgetPdf";
 
 function currency(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function blankItem(): ParsedBudgetItem {
+  return {
+    taskNumber: null,
+    taskName: "",
+    productLine: "",
+    partNumber: "",
+    description: "",
+    quantity: 1,
+    unitPrice: 0,
+    totalPrice: 0,
+  };
 }
 
 export function MechanicalInspectionPanel({
@@ -67,7 +80,37 @@ export function MechanicalInspectionPanel({
     setItems((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
   }
 
+  function addManualItem() {
+    setItems((prev) => [...(prev ?? []), blankItem()]);
+  }
+
   const total = items?.reduce((s, it) => s + it.totalPrice, 0) ?? 0;
+
+  const groups: {
+    key: string;
+    taskNumber: number | null;
+    taskName: string;
+    entries: { item: ParsedBudgetItem; index: number }[];
+  }[] = [];
+  if (items) {
+    const map = new Map<string, (typeof groups)[number]>();
+    items.forEach((item, index) => {
+      const key = `${item.taskNumber ?? "none"}|${item.taskName || ""}`;
+      let g = map.get(key);
+      if (!g) {
+        g = { key, taskNumber: item.taskNumber, taskName: item.taskName, entries: [] };
+        map.set(key, g);
+        groups.push(g);
+      }
+      g.entries.push({ item, index });
+    });
+    groups.sort((a, b) => {
+      if (a.taskNumber == null && b.taskNumber == null) return 0;
+      if (a.taskNumber == null) return 1;
+      if (b.taskNumber == null) return -1;
+      return a.taskNumber - b.taskNumber;
+    });
+  }
 
   async function confirmAndComplete() {
     if (!file || !items || items.length === 0) return;
@@ -175,6 +218,17 @@ export function MechanicalInspectionPanel({
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
+      <div>
+        <button
+          type="button"
+          disabled={saving || disabled}
+          onClick={addManualItem}
+          className="rounded-md border border-dashed px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
+        >
+          + Adicionar item manualmente
+        </button>
+      </div>
+
       {items && items.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-ekotruck-darkGreen/10">
           <table className="w-full text-xs">
@@ -191,55 +245,111 @@ export function MechanicalInspectionPanel({
               </tr>
             </thead>
             <tbody>
-              {items.map((it, idx) => (
-                <tr key={idx} className="border-t border-ekotruck-darkGreen/10">
-                  <td className="px-2 py-1.5 align-top">
-                    {it.taskNumber != null && (
-                      <div className="font-medium">Tarefa {it.taskNumber}</div>
-                    )}
-                    <div className="text-ekotruck-gray">{it.taskName}</div>
-                  </td>
-                  <td className="px-2 py-1.5 align-top">{it.productLine}</td>
-                  <td className="px-2 py-1.5 align-top">{it.partNumber}</td>
-                  <td className="px-2 py-1.5 align-top">{it.description}</td>
-                  <td className="px-2 py-1.5 align-top">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={it.quantity}
-                      onChange={(e) => updateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
-                      className="w-16 rounded border px-1 py-0.5"
-                    />
-                  </td>
-                  <td className="px-2 py-1.5 align-top">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={it.unitPrice}
-                      onChange={(e) => updateItem(idx, { unitPrice: parseFloat(e.target.value) || 0 })}
-                      className="w-24 rounded border px-1 py-0.5"
-                    />
-                  </td>
-                  <td className="px-2 py-1.5 align-top">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={it.totalPrice}
-                      onChange={(e) => updateItem(idx, { totalPrice: parseFloat(e.target.value) || 0 })}
-                      className="w-24 rounded border px-1 py-0.5"
-                    />
-                  </td>
-                  <td className="px-2 py-1.5 align-top">
-                    <button
-                      type="button"
-                      onClick={() => removeItem(idx)}
-                      className="text-red-600 hover:underline"
-                    >
-                      remover
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {groups.map((g) => {
+                const subtotal = g.entries.reduce((s, e) => s + e.item.totalPrice, 0);
+                return (
+                  <Fragment key={g.key}>
+                    <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-mint/20">
+                      <td colSpan={8} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
+                        {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : "Sem tarefa"}
+                        {g.taskName ? ` — ${g.taskName}` : ""}
+                      </td>
+                    </tr>
+                    {g.entries.map(({ item: it, index: idx }) => (
+                      <tr key={idx} className="border-t border-ekotruck-darkGreen/10">
+                        <td className="px-2 py-1.5 align-top">
+                          <div className="flex flex-col gap-1">
+                            <input
+                              type="number"
+                              placeholder="nº"
+                              value={it.taskNumber ?? ""}
+                              onChange={(e) =>
+                                updateItem(idx, {
+                                  taskNumber: e.target.value === "" ? null : parseInt(e.target.value, 10),
+                                })
+                              }
+                              className="w-14 rounded border px-1 py-0.5"
+                            />
+                            <input
+                              type="text"
+                              placeholder="nome da tarefa"
+                              value={it.taskName}
+                              onChange={(e) => updateItem(idx, { taskName: e.target.value })}
+                              className="w-28 rounded border px-1 py-0.5"
+                            />
+                          </div>
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <input
+                            type="text"
+                            value={it.productLine}
+                            onChange={(e) => updateItem(idx, { productLine: e.target.value })}
+                            className="w-14 rounded border px-1 py-0.5"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <input
+                            type="text"
+                            value={it.partNumber}
+                            onChange={(e) => updateItem(idx, { partNumber: e.target.value })}
+                            className="w-24 rounded border px-1 py-0.5"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <input
+                            type="text"
+                            value={it.description}
+                            onChange={(e) => updateItem(idx, { description: e.target.value })}
+                            className="w-40 rounded border px-1 py-0.5"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={it.quantity}
+                            onChange={(e) => updateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                            className="w-16 rounded border px-1 py-0.5"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={it.unitPrice}
+                            onChange={(e) => updateItem(idx, { unitPrice: parseFloat(e.target.value) || 0 })}
+                            className="w-24 rounded border px-1 py-0.5"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={it.totalPrice}
+                            onChange={(e) => updateItem(idx, { totalPrice: parseFloat(e.target.value) || 0 })}
+                            className="w-24 rounded border px-1 py-0.5"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <button
+                            type="button"
+                            onClick={() => removeItem(idx)}
+                            className="text-red-600 hover:underline"
+                          >
+                            remover
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5">
+                      <td colSpan={6}></td>
+                      <td colSpan={2} className="px-2 py-1.5 text-right font-medium">
+                        Subtotal: {currency(subtotal)}
+                      </td>
+                    </tr>
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
           <div className="flex justify-end border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5 px-3 py-2 text-sm font-semibold">
