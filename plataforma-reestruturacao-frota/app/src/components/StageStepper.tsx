@@ -5,6 +5,9 @@ import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CaseStatus, STAGE_ORDER } from "@/types/domain";
 import { StageAttachment, StageProgress, StageState } from "@/lib/data";
+import { MechanicalInspectionPanel } from "./MechanicalInspectionPanel";
+
+const MECHANICAL_STAGE: CaseStatus = "inspecao_mecanica_em_andamento";
 
 const STATE_LABEL: Record<StageState, string> = {
   pendente: "Pendente",
@@ -68,16 +71,23 @@ export function StageStepper({
   async function updateStage(
     stage: CaseStatus,
     index: number,
-    state: "concluido" | "nao_se_aplica"
+    state: "concluido" | "nao_se_aplica",
+    opts?: { skipAttachmentHandling?: boolean }
   ) {
     setError(null);
 
     const requiredMessage = REQUIRES_ATTACHMENT[stage];
     const hasExisting = (attachments[stage]?.length ?? 0) > 0;
     const fileInput = fileInputRefs.current[stage];
-    const file = fileInput?.files?.[0];
+    const file = opts?.skipAttachmentHandling ? undefined : fileInput?.files?.[0];
 
-    if (state === "concluido" && requiredMessage && !hasExisting && !file) {
+    if (
+      !opts?.skipAttachmentHandling &&
+      state === "concluido" &&
+      requiredMessage &&
+      !hasExisting &&
+      !file
+    ) {
       setError(requiredMessage);
       return;
     }
@@ -252,20 +262,18 @@ export function StageStepper({
               </span>
             </div>
 
-            {requiredMessage && (
+            {s.status === MECHANICAL_STAGE ? (
               <div className="mb-3">
-                <label className="mb-1 block text-xs font-medium">
-                  Anexo da etapa {stageFiles.length > 0 ? "(já enviado, opcional trocar)" : "(obrigatório para concluir)"}
-                </label>
-                <input
-                  type="file"
-                  ref={(el) => {
-                    fileInputRefs.current[s.status] = el;
+                <MechanicalInspectionPanel
+                  caseId={caseId}
+                  stage={s.status}
+                  disabled={busyStage === s.status}
+                  onCompleted={async () => {
+                    await updateStage(s.status, i, "concluido", { skipAttachmentHandling: true });
                   }}
-                  className="block text-sm"
                 />
                 {stageFiles.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
                     {stageFiles.map((f) => (
                       <button
                         key={f.id}
@@ -273,12 +281,41 @@ export function StageStepper({
                         onClick={() => openAttachment(f.url)}
                         className="text-xs text-ekotruck-orange hover:underline"
                       >
-                        📎 ver anexo atual
+                        📎 ver orçamento anexado anteriormente
                       </button>
                     ))}
                   </div>
                 )}
               </div>
+            ) : (
+              requiredMessage && (
+                <div className="mb-3">
+                  <label className="mb-1 block text-xs font-medium">
+                    Anexo da etapa {stageFiles.length > 0 ? "(já enviado, opcional trocar)" : "(obrigatório para concluir)"}
+                  </label>
+                  <input
+                    type="file"
+                    ref={(el) => {
+                      fileInputRefs.current[s.status] = el;
+                    }}
+                    className="block text-sm"
+                  />
+                  {stageFiles.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {stageFiles.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => openAttachment(f.url)}
+                          className="text-xs text-ekotruck-orange hover:underline"
+                        >
+                          📎 ver anexo atual
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
             )}
 
             <div className="flex flex-wrap items-end gap-3">
@@ -311,14 +348,16 @@ export function StageStepper({
                 >
                   Não se aplica
                 </button>
-                <button
-                  type="button"
-                  disabled={busyStage === s.status}
-                  onClick={() => updateStage(s.status, i, "concluido")}
-                  className="rounded-md bg-ekotruck-orange px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-                >
-                  {busyStage === s.status ? "Salvando..." : "Concluir e avançar"}
-                </button>
+                {s.status !== MECHANICAL_STAGE && (
+                  <button
+                    type="button"
+                    disabled={busyStage === s.status}
+                    onClick={() => updateStage(s.status, i, "concluido")}
+                    className="rounded-md bg-ekotruck-orange px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {busyStage === s.status ? "Salvando..." : "Concluir e avançar"}
+                  </button>
+                )}
               </div>
             </div>
 
