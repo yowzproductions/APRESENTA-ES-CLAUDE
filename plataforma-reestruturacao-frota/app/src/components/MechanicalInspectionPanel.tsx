@@ -29,19 +29,29 @@ export function MechanicalInspectionPanel({
     if (!file) return;
     setParsing(true);
     setError(null);
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch("/api/mechanical-inspection/parse", {
-      method: "POST",
-      body: form,
-    });
-    const data = await res.json();
-    setParsing(false);
-    if (!res.ok) {
-      setError(data.error || "Erro ao ler o PDF.");
-      return;
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/mechanical-inspection/parse", {
+        method: "POST",
+        body: form,
+      });
+      let data: { items?: ParsedBudgetItem[]; error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        // resposta não era JSON (ex.: erro 500 genérico do servidor)
+      }
+      if (!res.ok) {
+        setError(data.error || `Erro ao ler o PDF (HTTP ${res.status}).`);
+        return;
+      }
+      setItems(data.items ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao enviar o PDF.");
+    } finally {
+      setParsing(false);
     }
-    setItems(data.items);
   }
 
   function updateItem(index: number, patch: Partial<ParsedBudgetItem>) {
