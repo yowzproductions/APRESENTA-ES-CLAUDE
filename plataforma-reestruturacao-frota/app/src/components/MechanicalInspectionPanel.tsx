@@ -94,6 +94,7 @@ export function MechanicalInspectionPanel({
 
   const groups: {
     key: string;
+    reactKey: string;
     taskNumber: number | null;
     taskName: string;
     entries: { item: ParsedBudgetItem; index: number }[];
@@ -104,7 +105,10 @@ export function MechanicalInspectionPanel({
       const key = taskKey(item.taskNumber, item.taskName);
       let g = map.get(key);
       if (!g) {
-        g = { key, taskNumber: item.taskNumber, taskName: item.taskName, entries: [] };
+        // reactKey usa o índice do primeiro item do grupo (estável) em vez do
+        // conteúdo da tarefa (key) — senão, cada letra digitada no nome da
+        // tarefa muda a key, remonta o Fragment inteiro e o campo perde foco.
+        g = { key, reactKey: `g-${index}`, taskNumber: item.taskNumber, taskName: item.taskName, entries: [] };
         map.set(key, g);
         groups.push(g);
       }
@@ -228,16 +232,18 @@ export function MechanicalInspectionPanel({
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <div>
-        <button
-          type="button"
-          disabled={saving || disabled}
-          onClick={addManualItem}
-          className="rounded-md border border-dashed px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
-        >
-          + Adicionar item manualmente
-        </button>
-      </div>
+      {(!items || items.length === 0) && (
+        <div>
+          <button
+            type="button"
+            disabled={saving || disabled}
+            onClick={addManualItem}
+            className="rounded-md border border-dashed px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
+          >
+            + Adicionar item manualmente
+          </button>
+        </div>
+      )}
 
       {items && items.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-ekotruck-darkGreen/10">
@@ -258,7 +264,7 @@ export function MechanicalInspectionPanel({
               {groups.map((g) => {
                 const subtotal = g.entries.reduce((s, e) => s + e.item.totalPrice, 0);
                 return (
-                  <Fragment key={g.key}>
+                  <Fragment key={g.reactKey}>
                     <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-mint/20">
                       <td colSpan={8} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
                         {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : "Sem tarefa"}
@@ -384,6 +390,18 @@ export function MechanicalInspectionPanel({
                   </Fragment>
                 );
               })}
+              <tr className="border-t border-ekotruck-darkGreen/10">
+                <td colSpan={8} className="px-2 py-1.5">
+                  <button
+                    type="button"
+                    disabled={saving || disabled}
+                    onClick={addManualItem}
+                    className="rounded-md border border-dashed px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
+                  >
+                    + Adicionar item manualmente
+                  </button>
+                </td>
+              </tr>
             </tbody>
           </table>
           <div className="flex justify-end border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5 px-3 py-2 text-sm font-semibold">
