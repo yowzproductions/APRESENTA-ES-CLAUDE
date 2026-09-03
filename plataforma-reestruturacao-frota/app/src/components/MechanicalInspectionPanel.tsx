@@ -21,6 +21,12 @@ function blankItem(): ParsedBudgetItem {
   };
 }
 
+function taskKey(taskNumber: number | null, taskName: string) {
+  return `${taskNumber ?? "none"}|${taskName || ""}`;
+}
+
+const NEW_TASK = "__new__";
+
 export function MechanicalInspectionPanel({
   caseId,
   stage,
@@ -95,7 +101,7 @@ export function MechanicalInspectionPanel({
   if (items) {
     const map = new Map<string, (typeof groups)[number]>();
     items.forEach((item, index) => {
-      const key = `${item.taskNumber ?? "none"}|${item.taskName || ""}`;
+      const key = taskKey(item.taskNumber, item.taskName);
       let g = map.get(key);
       if (!g) {
         g = { key, taskNumber: item.taskNumber, taskName: item.taskName, entries: [] };
@@ -111,6 +117,10 @@ export function MechanicalInspectionPanel({
       return a.taskNumber - b.taskNumber;
     });
   }
+
+  const taskOptions = groups
+    .filter((g) => g.taskNumber != null || g.taskName)
+    .map((g) => ({ key: g.key, taskNumber: g.taskNumber, taskName: g.taskName }));
 
   async function confirmAndComplete() {
     if (!file || !items || items.length === 0) return;
@@ -259,6 +269,30 @@ export function MechanicalInspectionPanel({
                       <tr key={idx} className="border-t border-ekotruck-darkGreen/10">
                         <td className="px-2 py-1.5 align-top">
                           <div className="flex flex-col gap-1">
+                            <select
+                              value={
+                                taskOptions.some((o) => o.key === taskKey(it.taskNumber, it.taskName))
+                                  ? taskKey(it.taskNumber, it.taskName)
+                                  : NEW_TASK
+                              }
+                              onChange={(e) => {
+                                if (e.target.value === NEW_TASK) {
+                                  updateItem(idx, { taskNumber: null, taskName: "" });
+                                  return;
+                                }
+                                const opt = taskOptions.find((o) => o.key === e.target.value);
+                                if (opt) updateItem(idx, { taskNumber: opt.taskNumber, taskName: opt.taskName });
+                              }}
+                              className="w-32 rounded border px-1 py-0.5"
+                            >
+                              {taskOptions.map((opt) => (
+                                <option key={opt.key} value={opt.key}>
+                                  {opt.taskNumber != null ? `Tarefa ${opt.taskNumber}` : "Sem tarefa"}
+                                  {opt.taskName ? ` — ${opt.taskName}` : ""}
+                                </option>
+                              ))}
+                              <option value={NEW_TASK}>+ Nova tarefa...</option>
+                            </select>
                             <input
                               type="number"
                               placeholder="nº"
