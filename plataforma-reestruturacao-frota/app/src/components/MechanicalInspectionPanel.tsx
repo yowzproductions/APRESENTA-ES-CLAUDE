@@ -32,6 +32,15 @@ function taskKey(taskNumber: number | null, taskName: string) {
   return `${taskNumber ?? "none"}|${taskName || ""}`;
 }
 
+// Pede número e nome da tarefa nova. Retorna null se o usuário cancelar.
+function promptForNewTask(): { taskNumber: number | null; taskName: string } | null {
+  const numStr = window.prompt("Número da tarefa (deixe em branco se não houver):", "");
+  if (numStr === null) return null;
+  const name = window.prompt("Nome da tarefa:", "") ?? "";
+  const parsed = numStr.trim() === "" ? null : parseInt(numStr, 10);
+  return { taskNumber: parsed !== null && !isNaN(parsed) ? parsed : null, taskName: name };
+}
+
 const NEW_TASK = "__new__";
 
 export function MechanicalInspectionPanel({
@@ -50,6 +59,9 @@ export function MechanicalInspectionPanel({
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tarefas criadas explicitamente (botão "Criar tarefa"), que ainda não têm
+  // nenhum item — por isso não aparecem nos grupos derivados de `items`.
+  const [taskDefs, setTaskDefs] = useState<{ taskNumber: number | null; taskName: string }[]>([]);
 
   async function analyze() {
     if (!file) return;
@@ -99,8 +111,47 @@ export function MechanicalInspectionPanel({
     setItems((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
   }
 
+  function createTask() {
+    const t = promptForNewTask();
+    if (!t) return;
+    if (t.taskNumber == null && !t.taskName) return;
+    setTaskDefs((prev) => {
+      const key = taskKey(t.taskNumber, t.taskName);
+      if (prev.some((d) => taskKey(d.taskNumber, d.taskName) === key)) return prev;
+      return [...prev, t];
+    });
+  }
+
   function addManualItem() {
-    setItems((prev) => [...(prev ?? []), blankItem()]);
+    let task: { taskNumber: number | null; taskName: string } = { taskNumber: null, taskName: "" };
+    if (allTaskOptions.length > 0) {
+      const listText = allTaskOptions
+        .map(
+          (o, i) =>
+            `${i + 1}: ${o.taskNumber != null ? `Tarefa ${o.taskNumber}` : "Sem tarefa"}${
+              o.taskName ? ` — ${o.taskName}` : ""
+            }`
+        )
+        .join("\n");
+      const answer = window.prompt(
+        `Associar o novo item a qual tarefa?\n${listText}\n\nDigite o número da lista, "n" para criar uma tarefa nova, ou deixe em branco para não associar a nenhuma tarefa.`,
+        ""
+      );
+      if (answer === null) return;
+      const trimmed = answer.trim().toLowerCase();
+      if (trimmed === "n") {
+        const t = promptForNewTask();
+        if (!t) return;
+        task = t;
+      } else if (trimmed !== "") {
+        const chosenIdx = parseInt(trimmed, 10);
+        if (!isNaN(chosenIdx) && chosenIdx >= 1 && chosenIdx <= allTaskOptions.length) {
+          const opt = allTaskOptions[chosenIdx - 1];
+          task = { taskNumber: opt.taskNumber, taskName: opt.taskName };
+        }
+      }
+    }
+    setItems((prev) => [...(prev ?? []), { ...blankItem(), ...task }]);
   }
 
   const total = items?.reduce((s, it) => s + it.totalPrice, 0) ?? 0;
@@ -138,6 +189,25 @@ export function MechanicalInspectionPanel({
   const taskOptions = groups
     .filter((g) => g.taskNumber != null || g.taskName)
     .map((g) => ({ key: g.key, taskNumber: g.taskNumber, taskName: g.taskName }));
+
+  // Combina as tarefas que já têm item (taskOptions) com as criadas
+  // explicitamente pelo botão "Criar tarefa" (taskDefs), sem duplicar.
+  const allTaskOptions = (() => {
+    const map = new Map<string, { key: string; taskNumber: number | null; taskName: string }>();
+    taskOptions.forEach((o) => map.set(o.key, o));
+    taskDefs.forEach((d) => {
+      const key = taskKey(d.taskNumber, d.taskName);
+      if (!map.has(key)) map.set(key, { key, taskNumber: d.taskNumber, taskName: d.taskName });
+    });
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      if (a.taskNumber == null && b.taskNumber == null) return 0;
+      if (a.taskNumber == null) return 1;
+      if (b.taskNumber == null) return -1;
+      return a.taskNumber - b.taskNumber;
+    });
+    return list;
+  })();
 
   async function confirmAndComplete() {
     if (!file || !items || items.length === 0) return;
@@ -240,6 +310,14 @@ export function MechanicalInspectionPanel({
           >
             {parsing ? "Analisando..." : "Analisar PDF"}
           </button>
+          <button
+            type="button"
+            disabled={saving || disabled}
+            onClick={createTask}
+            className="rounded-md border px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
+          >
+            + Criar tarefa
+          </button>
         </div>
       </div>
 
@@ -289,31 +367,23 @@ export function MechanicalInspectionPanel({
                         <td className="px-2 py-1.5 align-top">
                           <select
                             value={
-                              taskOptions.some((o) => o.key === taskKey(it.taskNumber, it.taskName))
+                              allTaskOptions.some((o) => o.key === taskKey(it.taskNumber, it.taskName))
                                 ? taskKey(it.taskNumber, it.taskName)
                                 : NEW_TASK
                             }
                             onChange={(e) => {
                               if (e.target.value === NEW_TASK) {
-                                const numStr = window.prompt(
-                                  "Número da tarefa (deixe em branco se não houver):",
-                                  ""
-                                );
-                                if (numStr === null) return;
-                                const name = window.prompt("Nome da tarefa:", "") ?? "";
-                                const parsed = numStr.trim() === "" ? null : parseInt(numStr, 10);
-                                updateItem(idx, {
-                                  taskNumber: parsed !== null && !isNaN(parsed) ? parsed : null,
-                                  taskName: name,
-                                });
+                                const t = promptForNewTask();
+                                if (!t) return;
+                                updateItem(idx, { taskNumber: t.taskNumber, taskName: t.taskName });
                                 return;
                               }
-                              const opt = taskOptions.find((o) => o.key === e.target.value);
+                              const opt = allTaskOptions.find((o) => o.key === e.target.value);
                               if (opt) updateItem(idx, { taskNumber: opt.taskNumber, taskName: opt.taskName });
                             }}
                             className="w-36 rounded border px-1 py-0.5"
                           >
-                            {taskOptions.map((opt) => (
+                            {allTaskOptions.map((opt) => (
                               <option key={opt.key} value={opt.key}>
                                 {opt.taskNumber != null ? `Tarefa ${opt.taskNumber}` : "Sem tarefa"}
                                 {opt.taskName ? ` — ${opt.taskName}` : ""}
