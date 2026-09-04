@@ -287,50 +287,40 @@ export function MechanicalInspectionPanel({
                     {g.entries.map(({ item: it, index: idx }) => (
                       <tr key={idx} className="border-t border-ekotruck-darkGreen/10">
                         <td className="px-2 py-1.5 align-top">
-                          <div className="flex flex-col gap-1">
-                            <select
-                              value={
-                                taskOptions.some((o) => o.key === taskKey(it.taskNumber, it.taskName))
-                                  ? taskKey(it.taskNumber, it.taskName)
-                                  : NEW_TASK
-                              }
-                              onChange={(e) => {
-                                if (e.target.value === NEW_TASK) {
-                                  updateItem(idx, { taskNumber: null, taskName: "" });
-                                  return;
-                                }
-                                const opt = taskOptions.find((o) => o.key === e.target.value);
-                                if (opt) updateItem(idx, { taskNumber: opt.taskNumber, taskName: opt.taskName });
-                              }}
-                              className="w-32 rounded border px-1 py-0.5"
-                            >
-                              {taskOptions.map((opt) => (
-                                <option key={opt.key} value={opt.key}>
-                                  {opt.taskNumber != null ? `Tarefa ${opt.taskNumber}` : "Sem tarefa"}
-                                  {opt.taskName ? ` — ${opt.taskName}` : ""}
-                                </option>
-                              ))}
-                              <option value={NEW_TASK}>+ Nova tarefa...</option>
-                            </select>
-                            <input
-                              type="number"
-                              placeholder="nº"
-                              value={it.taskNumber ?? ""}
-                              onChange={(e) =>
+                          <select
+                            value={
+                              taskOptions.some((o) => o.key === taskKey(it.taskNumber, it.taskName))
+                                ? taskKey(it.taskNumber, it.taskName)
+                                : NEW_TASK
+                            }
+                            onChange={(e) => {
+                              if (e.target.value === NEW_TASK) {
+                                const numStr = window.prompt(
+                                  "Número da tarefa (deixe em branco se não houver):",
+                                  ""
+                                );
+                                if (numStr === null) return;
+                                const name = window.prompt("Nome da tarefa:", "") ?? "";
+                                const parsed = numStr.trim() === "" ? null : parseInt(numStr, 10);
                                 updateItem(idx, {
-                                  taskNumber: e.target.value === "" ? null : parseInt(e.target.value, 10),
-                                })
+                                  taskNumber: parsed !== null && !isNaN(parsed) ? parsed : null,
+                                  taskName: name,
+                                });
+                                return;
                               }
-                              className="w-14 rounded border px-1 py-0.5"
-                            />
-                            <input
-                              type="text"
-                              placeholder="nome da tarefa"
-                              value={it.taskName}
-                              onChange={(e) => updateItem(idx, { taskName: e.target.value })}
-                              className="w-28 rounded border px-1 py-0.5"
-                            />
-                          </div>
+                              const opt = taskOptions.find((o) => o.key === e.target.value);
+                              if (opt) updateItem(idx, { taskNumber: opt.taskNumber, taskName: opt.taskName });
+                            }}
+                            className="w-36 rounded border px-1 py-0.5"
+                          >
+                            {taskOptions.map((opt) => (
+                              <option key={opt.key} value={opt.key}>
+                                {opt.taskNumber != null ? `Tarefa ${opt.taskNumber}` : "Sem tarefa"}
+                                {opt.taskName ? ` — ${opt.taskName}` : ""}
+                              </option>
+                            ))}
+                            <option value={NEW_TASK}>+ Nova tarefa...</option>
+                          </select>
                         </td>
                         <td className="px-2 py-1.5 align-top">
                           <input
