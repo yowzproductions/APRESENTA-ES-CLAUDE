@@ -32,15 +32,7 @@ function taskKey(taskNumber: number | null, taskName: string) {
   return `${taskNumber ?? "none"}|${taskName || ""}`;
 }
 
-// Pede número e nome da tarefa nova. Retorna null se o usuário cancelar.
-function promptForNewTask(): { taskNumber: number | null; taskName: string } | null {
-  const numStr = window.prompt("Número da tarefa (deixe em branco se não houver):", "");
-  if (numStr === null) return null;
-  const name = window.prompt("Nome da tarefa:", "") ?? "";
-  const parsed = numStr.trim() === "" ? null : parseInt(numStr, 10);
-  return { taskNumber: parsed !== null && !isNaN(parsed) ? parsed : null, taskName: name };
-}
-
+const NONE_TASK = "__none__";
 const NEW_TASK = "__new__";
 
 export function MechanicalInspectionPanel({
@@ -62,6 +54,17 @@ export function MechanicalInspectionPanel({
   // Tarefas criadas explicitamente (botão "Criar tarefa"), que ainda não têm
   // nenhum item — por isso não aparecem nos grupos derivados de `items`.
   const [taskDefs, setTaskDefs] = useState<{ taskNumber: number | null; taskName: string }[]>([]);
+
+  // Formulário inline (dentro do card) para criar uma tarefa nova, ao lado
+  // de "Analisar PDF".
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [newTaskNumber, setNewTaskNumber] = useState("");
+  const [newTaskName, setNewTaskName] = useState("");
+
+  // Seleção de tarefa para o próximo item a ser adicionado manualmente.
+  const [addTaskChoice, setAddTaskChoice] = useState<string>(NONE_TASK);
+  const [addTaskNewNumber, setAddTaskNewNumber] = useState("");
+  const [addTaskNewName, setAddTaskNewName] = useState("");
 
   async function analyze() {
     if (!file) return;
@@ -111,10 +114,7 @@ export function MechanicalInspectionPanel({
     setItems((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
   }
 
-  function createTask() {
-    const t = promptForNewTask();
-    if (!t) return;
-    if (t.taskNumber == null && !t.taskName) return;
+  function addTaskDef(t: { taskNumber: number | null; taskName: string }) {
     setTaskDefs((prev) => {
       const key = taskKey(t.taskNumber, t.taskName);
       if (prev.some((d) => taskKey(d.taskNumber, d.taskName) === key)) return prev;
@@ -122,34 +122,37 @@ export function MechanicalInspectionPanel({
     });
   }
 
+  function saveNewTask() {
+    const parsed = newTaskNumber.trim() === "" ? null : parseInt(newTaskNumber, 10);
+    const taskNumber = parsed !== null && !isNaN(parsed) ? parsed : null;
+    if (taskNumber == null && !newTaskName.trim()) return;
+    addTaskDef({ taskNumber, taskName: newTaskName.trim() });
+    setNewTaskNumber("");
+    setNewTaskName("");
+    setCreatingTask(false);
+  }
+
+  function cancelNewTask() {
+    setNewTaskNumber("");
+    setNewTaskName("");
+    setCreatingTask(false);
+  }
+
   function addManualItem() {
     let task: { taskNumber: number | null; taskName: string } = { taskNumber: null, taskName: "" };
-    if (allTaskOptions.length > 0) {
-      const listText = allTaskOptions
-        .map(
-          (o, i) =>
-            `${i + 1}: ${o.taskNumber != null ? `Tarefa ${o.taskNumber}` : "Sem tarefa"}${
-              o.taskName ? ` — ${o.taskName}` : ""
-            }`
-        )
-        .join("\n");
-      const answer = window.prompt(
-        `Associar o novo item a qual tarefa?\n${listText}\n\nDigite o número da lista, "n" para criar uma tarefa nova, ou deixe em branco para não associar a nenhuma tarefa.`,
-        ""
-      );
-      if (answer === null) return;
-      const trimmed = answer.trim().toLowerCase();
-      if (trimmed === "n") {
-        const t = promptForNewTask();
-        if (!t) return;
-        task = t;
-      } else if (trimmed !== "") {
-        const chosenIdx = parseInt(trimmed, 10);
-        if (!isNaN(chosenIdx) && chosenIdx >= 1 && chosenIdx <= allTaskOptions.length) {
-          const opt = allTaskOptions[chosenIdx - 1];
-          task = { taskNumber: opt.taskNumber, taskName: opt.taskName };
-        }
-      }
+    if (addTaskChoice === NEW_TASK) {
+      const parsed = addTaskNewNumber.trim() === "" ? null : parseInt(addTaskNewNumber, 10);
+      task = {
+        taskNumber: parsed !== null && !isNaN(parsed) ? parsed : null,
+        taskName: addTaskNewName.trim(),
+      };
+      addTaskDef(task);
+      setAddTaskChoice(taskKey(task.taskNumber, task.taskName));
+      setAddTaskNewNumber("");
+      setAddTaskNewName("");
+    } else if (addTaskChoice !== NONE_TASK) {
+      const opt = allTaskOptions.find((o) => o.key === addTaskChoice);
+      if (opt) task = { taskNumber: opt.taskNumber, taskName: opt.taskName };
     }
     setItems((prev) => [...(prev ?? []), { ...blankItem(), ...task }]);
   }
@@ -286,13 +289,59 @@ export function MechanicalInspectionPanel({
     await onCompleted();
   }
 
+  const addItemControls = (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        value={addTaskChoice}
+        onChange={(e) => setAddTaskChoice(e.target.value)}
+        disabled={saving || disabled}
+        className="rounded border px-2 py-1.5 text-sm"
+      >
+        <option value={NONE_TASK}>Sem tarefa</option>
+        {allTaskOptions.map((opt) => (
+          <option key={opt.key} value={opt.key}>
+            {opt.taskNumber != null ? `Tarefa ${opt.taskNumber}` : "Sem tarefa"}
+            {opt.taskName ? ` — ${opt.taskName}` : ""}
+          </option>
+        ))}
+        <option value={NEW_TASK}>+ Nova tarefa...</option>
+      </select>
+      {addTaskChoice === NEW_TASK && (
+        <>
+          <input
+            type="number"
+            placeholder="nº"
+            value={addTaskNewNumber}
+            onChange={(e) => setAddTaskNewNumber(e.target.value)}
+            className="w-16 rounded border px-1 py-1.5 text-sm"
+          />
+          <input
+            type="text"
+            placeholder="nome da tarefa"
+            value={addTaskNewName}
+            onChange={(e) => setAddTaskNewName(e.target.value)}
+            className="w-40 rounded border px-1 py-1.5 text-sm"
+          />
+        </>
+      )}
+      <button
+        type="button"
+        disabled={saving || disabled}
+        onClick={addManualItem}
+        className="rounded-md border border-dashed px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
+      >
+        + Adicionar item
+      </button>
+    </div>
+  );
+
   return (
     <div className="space-y-3">
       <div>
         <label className="mb-1 block text-xs font-medium">
           PDF do orçamento (espelho de negociação)
         </label>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <input
             type="file"
             accept="application/pdf"
@@ -310,31 +359,50 @@ export function MechanicalInspectionPanel({
           >
             {parsing ? "Analisando..." : "Analisar PDF"}
           </button>
-          <button
-            type="button"
-            disabled={saving || disabled}
-            onClick={createTask}
-            className="rounded-md border px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
-          >
-            + Criar tarefa
-          </button>
+          {!creatingTask && (
+            <button
+              type="button"
+              disabled={saving || disabled}
+              onClick={() => setCreatingTask(true)}
+              className="rounded-md border px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
+            >
+              + Criar tarefa
+            </button>
+          )}
+          {creatingTask && (
+            <div className="flex items-center gap-2 rounded-md border border-dashed px-2 py-1">
+              <input
+                type="number"
+                placeholder="nº"
+                value={newTaskNumber}
+                onChange={(e) => setNewTaskNumber(e.target.value)}
+                className="w-16 rounded border px-1 py-1 text-sm"
+              />
+              <input
+                type="text"
+                placeholder="nome da tarefa"
+                value={newTaskName}
+                onChange={(e) => setNewTaskName(e.target.value)}
+                className="w-40 rounded border px-1 py-1 text-sm"
+              />
+              <button
+                type="button"
+                onClick={saveNewTask}
+                className="rounded-md bg-ekotruck-orange px-3 py-1 text-sm font-medium text-white hover:opacity-90"
+              >
+                Salvar
+              </button>
+              <button type="button" onClick={cancelNewTask} className="text-sm text-ekotruck-gray hover:underline">
+                cancelar
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {(!items || items.length === 0) && (
-        <div>
-          <button
-            type="button"
-            disabled={saving || disabled}
-            onClick={addManualItem}
-            className="rounded-md border border-dashed px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
-          >
-            + Adicionar item manualmente
-          </button>
-        </div>
-      )}
+      {(!items || items.length === 0) && addItemControls}
 
       {items && items.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-ekotruck-darkGreen/10">
@@ -364,34 +432,9 @@ export function MechanicalInspectionPanel({
                     </tr>
                     {g.entries.map(({ item: it, index: idx }) => (
                       <tr key={idx} className="border-t border-ekotruck-darkGreen/10">
-                        <td className="px-2 py-1.5 align-top">
-                          <select
-                            value={
-                              allTaskOptions.some((o) => o.key === taskKey(it.taskNumber, it.taskName))
-                                ? taskKey(it.taskNumber, it.taskName)
-                                : NEW_TASK
-                            }
-                            onChange={(e) => {
-                              if (e.target.value === NEW_TASK) {
-                                const t = promptForNewTask();
-                                if (!t) return;
-                                updateItem(idx, { taskNumber: t.taskNumber, taskName: t.taskName });
-                                return;
-                              }
-                              const opt = allTaskOptions.find((o) => o.key === e.target.value);
-                              if (opt) updateItem(idx, { taskNumber: opt.taskNumber, taskName: opt.taskName });
-                            }}
-                            className="w-36 rounded border px-1 py-0.5"
-                          >
-                            {allTaskOptions.map((opt) => (
-                              <option key={opt.key} value={opt.key}>
-                                {opt.taskNumber != null ? `Tarefa ${opt.taskNumber}` : "Sem tarefa"}
-                                {opt.taskName ? ` — ${opt.taskName}` : ""}
-                              </option>
-                            ))}
-                            <option value={NEW_TASK}>+ Nova tarefa...</option>
-                          </select>
-                        </td>
+                        {/* Tarefa não aparece por item — já está definida pelo
+                            quadro (grupo) acima, onde o item está posicionado. */}
+                        <td className="px-2 py-1.5 align-top"></td>
                         <td className="px-2 py-1.5 align-top">
                           <input
                             type="text"
@@ -457,14 +500,7 @@ export function MechanicalInspectionPanel({
               })}
               <tr className="border-t border-ekotruck-darkGreen/10">
                 <td colSpan={8} className="px-2 py-1.5">
-                  <button
-                    type="button"
-                    disabled={saving || disabled}
-                    onClick={addManualItem}
-                    className="rounded-md border border-dashed px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
-                  >
-                    + Adicionar item manualmente
-                  </button>
+                  {addItemControls}
                 </td>
               </tr>
             </tbody>
