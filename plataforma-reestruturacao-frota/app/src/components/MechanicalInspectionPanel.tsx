@@ -8,6 +8,13 @@ function currency(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Máscara de dinheiro: cada dígito digitado entra na casa dos centavos,
+// como em caixas eletrônicos (ex.: digitar "1234" vira R$ 12,34).
+function parseCurrencyInput(raw: string): number {
+  const digits = raw.replace(/\D/g, "");
+  return digits === "" ? 0 : parseInt(digits, 10) / 100;
+}
+
 function blankItem(): ParsedBudgetItem {
   return {
     taskNumber: null,
@@ -77,7 +84,13 @@ export function MechanicalInspectionPanel({
     setItems((prev) => {
       if (!prev) return prev;
       const next = [...prev];
-      next[index] = { ...next[index], ...patch };
+      const merged = { ...next[index], ...patch };
+      // Preço total é sempre derivado de quantidade x preço unitário — nunca
+      // editado diretamente.
+      if ("quantity" in patch || "unitPrice" in patch) {
+        merged.totalPrice = Math.round(merged.quantity * merged.unitPrice * 100) / 100;
+      }
+      next[index] = merged;
       return next;
     });
   }
@@ -354,22 +367,14 @@ export function MechanicalInspectionPanel({
                         </td>
                         <td className="px-2 py-1.5 align-top">
                           <input
-                            type="number"
-                            step="0.01"
-                            value={it.unitPrice}
-                            onChange={(e) => updateItem(idx, { unitPrice: parseFloat(e.target.value) || 0 })}
+                            type="text"
+                            inputMode="numeric"
+                            value={currency(it.unitPrice)}
+                            onChange={(e) => updateItem(idx, { unitPrice: parseCurrencyInput(e.target.value) })}
                             className="w-24 rounded border px-1 py-0.5"
                           />
                         </td>
-                        <td className="px-2 py-1.5 align-top">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={it.totalPrice}
-                            onChange={(e) => updateItem(idx, { totalPrice: parseFloat(e.target.value) || 0 })}
-                            className="w-24 rounded border px-1 py-0.5"
-                          />
-                        </td>
+                        <td className="px-2 py-1.5 align-top">{currency(it.totalPrice)}</td>
                         <td className="px-2 py-1.5 align-top">
                           <button
                             type="button"
