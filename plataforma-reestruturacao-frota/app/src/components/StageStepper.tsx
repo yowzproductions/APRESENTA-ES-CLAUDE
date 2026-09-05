@@ -6,8 +6,10 @@ import { createClient } from "@/lib/supabase/client";
 import { CaseStatus, STAGE_ORDER } from "@/types/domain";
 import { StageAttachment, StageProgress, StageState } from "@/lib/data";
 import { MechanicalInspectionPanel } from "./MechanicalInspectionPanel";
+import { InspectionChecklistPanel } from "./InspectionChecklistPanel";
 
 const MECHANICAL_STAGE: CaseStatus = "inspecao_mecanica_em_andamento";
+const INSPECTION_STAGE: CaseStatus = "vistoria_em_andamento";
 
 const STATE_LABEL: Record<StageState, string> = {
   pendente: "Pendente",
@@ -23,11 +25,10 @@ const STATE_COLOR: Record<StageState, string> = {
   nao_se_aplica: "bg-neutral-200 text-neutral-500",
 };
 
-// Etapas que exigem anexo (ex.: laudo da vistoria) antes de poder concluir.
-// Fácil de estender: basta adicionar a chave da etapa (CaseStatus) aqui.
-const REQUIRES_ATTACHMENT: Partial<Record<CaseStatus, string>> = {
-  vistoria_em_andamento: "Anexe o arquivo da vistoria realizada para concluir esta etapa.",
-};
+// Etapas que exigem anexo antes de poder concluir. Fácil de estender: basta
+// adicionar a chave da etapa (CaseStatus) aqui. Vistoria e inspeção mecânica
+// não entram aqui porque têm painel próprio (que já cuida do anexo).
+const REQUIRES_ATTACHMENT: Partial<Record<CaseStatus, string>> = {};
 
 function fmt(d: string | null) {
   if (!d) return null;
@@ -287,6 +288,31 @@ export function StageStepper({
                   </div>
                 )}
               </div>
+            ) : s.status === INSPECTION_STAGE ? (
+              <div className="mb-3">
+                <InspectionChecklistPanel
+                  caseId={caseId}
+                  stage={s.status}
+                  disabled={busyStage === s.status}
+                  onCompleted={async () => {
+                    await updateStage(s.status, i, "concluido", { skipAttachmentHandling: true });
+                  }}
+                />
+                {stageFiles.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {stageFiles.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => openAttachment(f.url)}
+                        className="text-xs text-ekotruck-orange hover:underline"
+                      >
+                        📎 ver vistoria anexada anteriormente
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
               requiredMessage && (
                 <div className="mb-3">
@@ -348,7 +374,7 @@ export function StageStepper({
                 >
                   Não se aplica
                 </button>
-                {s.status !== MECHANICAL_STAGE && (
+                {s.status !== MECHANICAL_STAGE && s.status !== INSPECTION_STAGE && (
                   <button
                     type="button"
                     disabled={busyStage === s.status}
