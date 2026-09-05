@@ -53,6 +53,7 @@ export function InspectionChecklistPanel({
   disabled: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const [uploadedPath, setUploadedPath] = useState<string | null>(null);
   const [points, setPoints] = useState<ChecklistPoint[] | null>(null);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -63,9 +64,24 @@ export function InspectionChecklistPanel({
     setParsing(true);
     setError(null);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/inspection/parse", { method: "POST", body: form });
+      // O PDF vai direto para o Storage (sem passar pelo corpo da requisição
+      // da função serverless, que tem limite de ~4,5 MB na Vercel e causava
+      // HTTP 413 em arquivos maiores, como o relatório fotográfico de
+      // vistoria). A rota de leitura recebe só o caminho.
+      const supabase = createClient();
+      const path = `${caseId}/${stage}/${Date.now()}-${file.name}`;
+      const { error: upErr } = await supabase.storage.from("case-attachments").upload(path, file);
+      if (upErr) {
+        setError(upErr.message);
+        return;
+      }
+      setUploadedPath(path);
+
+      const res = await fetch("/api/inspection/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
       let data: { points?: ParsedInspectionPoint[]; error?: string } = {};
       try {
         data = await res.json();
@@ -139,7 +155,7 @@ export function InspectionChecklistPanel({
   const damagedCount = points?.filter((p) => p.status === "avariado").length ?? 0;
 
   async function confirmAndComplete() {
-    if (!file || !points || points.length === 0) return;
+    if (!uploadedPath || !points || points.length === 0) return;
     setError(null);
 
     for (const p of points) {
@@ -155,18 +171,13 @@ export function InspectionChecklistPanel({
       data: { user },
     } = await supabase.auth.getUser();
 
-    const path = `${caseId}/${stage}/${Date.now()}-${file.name}`;
-    const { error: upErr } = await supabase.storage.from("case-attachments").upload(path, file);
-    if (upErr) {
-      setError(upErr.message);
-      setSaving(false);
-      return;
-    }
+    // O arquivo já foi enviado ao Storage em analyze() — aqui só registramos
+    // o anexo, sem subir de novo.
     await supabase.from("attachments").insert({
       related_table: "return_cases",
       related_id: caseId,
       stage,
-      url: path,
+      url: uploadedPath,
       uploaded_by: user?.id,
     });
 
@@ -257,6 +268,7 @@ export function InspectionChecklistPanel({
             accept="application/pdf"
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null);
+              setUploadedPath(null);
               setPoints(null);
             }}
             className="block text-sm"

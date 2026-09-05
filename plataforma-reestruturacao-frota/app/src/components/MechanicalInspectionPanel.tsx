@@ -47,6 +47,7 @@ export function MechanicalInspectionPanel({
   disabled: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const [uploadedPath, setUploadedPath] = useState<string | null>(null);
   const [items, setItems] = useState<ParsedBudgetItem[] | null>(null);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -71,11 +72,22 @@ export function MechanicalInspectionPanel({
     setParsing(true);
     setError(null);
     try {
-      const form = new FormData();
-      form.append("file", file);
+      // O PDF vai direto para o Storage (sem passar pelo corpo da requisição
+      // da função serverless, que tem limite de ~4,5 MB na Vercel e causava
+      // HTTP 413 em arquivos maiores). A rota de leitura recebe só o caminho.
+      const supabase = createClient();
+      const path = `${caseId}/${stage}/${Date.now()}-${file.name}`;
+      const { error: upErr } = await supabase.storage.from("case-attachments").upload(path, file);
+      if (upErr) {
+        setError(upErr.message);
+        return;
+      }
+      setUploadedPath(path);
+
       const res = await fetch("/api/mechanical-inspection/parse", {
         method: "POST",
-        body: form,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
       });
       let data: { items?: ParsedBudgetItem[]; error?: string } = {};
       try {
@@ -213,7 +225,7 @@ export function MechanicalInspectionPanel({
   })();
 
   async function confirmAndComplete() {
-    if (!file || !items || items.length === 0) return;
+    if (!uploadedPath || !items || items.length === 0) return;
     setSaving(true);
     setError(null);
     const supabase = createClient();
@@ -221,18 +233,13 @@ export function MechanicalInspectionPanel({
       data: { user },
     } = await supabase.auth.getUser();
 
-    const path = `${caseId}/${stage}/${Date.now()}-${file.name}`;
-    const { error: upErr } = await supabase.storage.from("case-attachments").upload(path, file);
-    if (upErr) {
-      setError(upErr.message);
-      setSaving(false);
-      return;
-    }
+    // O arquivo já foi enviado ao Storage em analyze() — aqui só registramos
+    // o anexo, sem subir de novo.
     await supabase.from("attachments").insert({
       related_table: "return_cases",
       related_id: caseId,
       stage,
-      url: path,
+      url: uploadedPath,
       uploaded_by: user?.id,
     });
 
@@ -347,6 +354,7 @@ export function MechanicalInspectionPanel({
             accept="application/pdf"
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null);
+              setUploadedPath(null);
               setItems(null);
             }}
             className="block text-sm"

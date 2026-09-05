@@ -12,13 +12,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
   }
 
-  const form = await request.formData();
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "Envie um arquivo PDF." }, { status: 400 });
+  // O PDF já foi enviado ao Storage pelo cliente (evita o limite de corpo de
+  // requisição da função serverless, ~4,5 MB na Vercel, que causava HTTP
+  // 413 — o relatório fotográfico de vistoria costuma passar disso) — aqui
+  // só recebemos o caminho e baixamos.
+  const body = await request.json().catch(() => null);
+  const path = body?.path;
+  if (typeof path !== "string" || !path) {
+    return NextResponse.json({ error: "Caminho do arquivo não informado." }, { status: 400 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
+  const { data: fileData, error: dlErr } = await supabase.storage.from("case-attachments").download(path);
+  if (dlErr || !fileData) {
+    return NextResponse.json({ error: "Não consegui baixar o PDF enviado." }, { status: 422 });
+  }
+
+  const buffer = Buffer.from(await fileData.arrayBuffer());
   const parser = new PDFParse({ data: buffer });
   const result = await parser.getText();
   const points = parseInspectionPdf(result.text);
