@@ -20,6 +20,10 @@ const nextConfig = {
         "./node_modules/@napi-rs/canvas*/**",
         "./node_modules/pdfjs-dist/**",
       ],
+      "/api/inspection/parse": [
+        "./node_modules/@napi-rs/canvas*/**",
+        "./node_modules/pdfjs-dist/**",
+      ],
     },
   },
 };
