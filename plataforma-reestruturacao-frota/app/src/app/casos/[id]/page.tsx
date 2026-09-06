@@ -85,6 +85,11 @@ export default async function CaseDetail({ params }: { params: { id: string } })
             {activity.map((a) => (
               <li key={a.id} className="flex items-start justify-between gap-4 text-sm">
                 <div>
+                  {a.stageLabel && (
+                    <span className="mr-2 rounded-full bg-ekotruck-darkGreen/10 px-2 py-0.5 text-xs font-medium text-ekotruck-darkGreen">
+                      {a.stageLabel}
+                    </span>
+                  )}
                   <span className="text-ekotruck-darkGreen">{a.description}</span>
                   {a.actorEmail && (
                     <span className="ml-2 text-xs text-ekotruck-gray">por {a.actorEmail}</span>

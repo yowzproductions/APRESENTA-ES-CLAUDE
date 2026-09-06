@@ -119,7 +119,24 @@ export interface ActivityEntry {
   actorEmail: string | null;
   description: string;
   createdAt: string;
+  stageLabel: string | null;
 }
+
+// Nome de etapa exibido junto de cada movimentação do histórico, para
+// diferenciar "quem editou/excluiu o quê" por etapa. Mantido em paralelo a
+// STAGE_ORDER (não importado diretamente para evitar acoplar lib/data.ts a
+// types/domain.ts só por causa de um rótulo).
+const STAGE_LABELS: Record<string, string> = {
+  cadastrado: "Cadastro",
+  agendado: "Programação de Entrega",
+  vistoria_em_andamento: "Vistoria",
+  inspecao_mecanica_em_andamento: "Inspeção Mecânica",
+  orcamento_unificado: "Orçamento Unificado",
+  aguardando_aprovacao_cliente: "Aprovação Cliente",
+  em_otimizacao: "Otimização",
+  em_execucao: "Execução",
+  finalizado: "Finalizado",
+};
 
 // Junta o log de atividade livre (activity_log) com o histórico de troca de
 // status (case_status_history) numa única linha do tempo, mais recente
@@ -130,7 +147,7 @@ export async function getCaseActivity(caseId: string): Promise<ActivityEntry[]> 
   const [{ data: activity }, { data: statusHistory }] = await Promise.all([
     supabase
       .from("activity_log")
-      .select("id, actor_email, description, created_at")
+      .select("id, actor_email, description, created_at, stage")
       .eq("case_id", caseId),
     supabase
       .from("case_status_history")
@@ -143,6 +160,7 @@ export async function getCaseActivity(caseId: string): Promise<ActivityEntry[]> 
     actorEmail: a.actor_email,
     description: a.description,
     createdAt: a.created_at,
+    stageLabel: a.stage ? STAGE_LABELS[a.stage] ?? a.stage : null,
   }));
 
   const fromStatus: ActivityEntry[] = (statusHistory ?? []).map((s: any) => ({
@@ -150,6 +168,7 @@ export async function getCaseActivity(caseId: string): Promise<ActivityEntry[]> 
     actorEmail: s.profiles?.full_name ?? null,
     description: `Status alterado para "${s.to_status}".`,
     createdAt: s.changed_at,
+    stageLabel: STAGE_LABELS[s.to_status] ?? s.to_status,
   }));
 
   return [...fromActivity, ...fromStatus].sort(

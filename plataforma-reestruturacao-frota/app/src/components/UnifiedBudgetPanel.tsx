@@ -72,7 +72,10 @@ export function UnifiedBudgetPanel({
   const [error, setError] = useState<string | null>(null);
   const [budgetId, setBudgetId] = useState<string | null>(null);
   const [items, setItems] = useState<BudgetItem[] | null>(null);
-  const [removedIds, setRemovedIds] = useState<string[]>([]);
+  const [removedItems, setRemovedItems] = useState<{ id: string; description: string }[]>([]);
+  // Retrato dos itens tal como vieram do banco, para detectar o que o
+  // operador realmente editou até a confirmação (e registrar no histórico).
+  const [originalItems, setOriginalItems] = useState<Record<string, BudgetItem>>({});
 
   // Tarefas criadas explicitamente (botão "Criar tarefa"), que ainda não têm
   // nenhum item — por isso não aparecem nos grupos derivados de `items`.
@@ -111,23 +114,23 @@ export function UnifiedBudgetPanel({
       .select("*")
       .eq("unified_budget_id", budget.id)
       .order("created_at", { ascending: true });
-    setItems(
-      ((budgetItems as Record<string, any>[]) ?? []).map((it) => ({
-        id: it.id,
-        description: it.description,
-        cost: it.cost,
-        source: it.source,
-        part_number: it.part_number || "",
-        product_line: it.product_line || "",
-        quantity: it.quantity ?? 1,
-        unit_price: it.unit_price ?? 0,
-        source_label: it.source_label || "",
-        included: it.included,
-        task_number: it.task_number,
-        task_name: it.task_name || "",
-      }))
-    );
-    setRemovedIds([]);
+    const loaded: BudgetItem[] = ((budgetItems as Record<string, any>[]) ?? []).map((it) => ({
+      id: it.id,
+      description: it.description,
+      cost: it.cost,
+      source: it.source,
+      part_number: it.part_number || "",
+      product_line: it.product_line || "",
+      quantity: it.quantity ?? 1,
+      unit_price: it.unit_price ?? 0,
+      source_label: it.source_label || "",
+      included: it.included,
+      task_number: it.task_number,
+      task_name: it.task_name || "",
+    }));
+    setItems(loaded);
+    setOriginalItems(Object.fromEntries(loaded.map((it) => [it.id, it])));
+    setRemovedItems([]);
     setLoading(false);
   }
 
@@ -229,22 +232,38 @@ export function UnifiedBudgetPanel({
       });
     }
 
+    let insertedRows: { id: string; description: string; source_label: string | null }[] = [];
     if (rows.length > 0) {
-      const { error: itemsErr } = await supabase.from("unified_budget_items").insert(rows);
+      const { data, error: itemsErr } = await supabase
+        .from("unified_budget_items")
+        .insert(rows)
+        .select("id, description, source_label");
       if (itemsErr) {
         setError(itemsErr.message);
         setGenerating(false);
         return;
       }
+      insertedRows = data ?? [];
     }
 
-    await supabase.from("activity_log").insert({
-      case_id: caseId,
-      actor_id: user?.id,
-      actor_email: user?.email,
-      action: "orcamento_unificado_gerado",
-      description: `Gerou o orçamento unificado com ${rows.length} item(ns) (vistoria + inspeção mecânica).`,
-    });
+    await supabase.from("activity_log").insert([
+      {
+        case_id: caseId,
+        actor_id: user?.id,
+        actor_email: user?.email,
+        stage: "orcamento_unificado",
+        action: "orcamento_unificado_gerado",
+        description: `Gerou o orçamento unificado com ${rows.length} item(ns) (vistoria + inspeção mecânica).`,
+      },
+      ...insertedRows.map((row) => ({
+        case_id: caseId,
+        actor_id: user?.id,
+        actor_email: user?.email,
+        stage: "orcamento_unificado",
+        action: "item_criado",
+        description: `Trouxe o item "${row.description}" (${row.source_label}) para o orçamento unificado.`,
+      })),
+    ]);
 
     await loadBudget();
     setGenerating(false);
@@ -267,7 +286,7 @@ export function UnifiedBudgetPanel({
     setItems((prev) => {
       if (!prev) return prev;
       const it = prev[index];
-      if (!it.isNew) setRemovedIds((r) => [...r, it.id]);
+      if (!it.isNew) setRemovedItems((r) => [...r, { id: it.id, description: it.description }]);
       return prev.filter((_, i) => i !== index);
     });
   }
@@ -447,6 +466,29 @@ export function UnifiedBudgetPanel({
     doc.save(`orcamento-unificado-${caseId}.pdf`);
   }
 
+  function describeFieldChanges(before: BudgetItem, after: BudgetItem): string[] {
+    const changes: string[] = [];
+    if (before.description !== after.description) {
+      changes.push(`descrição de "${before.description}" para "${after.description}"`);
+    }
+    if (before.part_number !== after.part_number) {
+      changes.push(`partnumber de "${before.part_number || "-"}" para "${after.part_number || "-"}"`);
+    }
+    if (before.product_line !== after.product_line) {
+      changes.push(`linha de "${before.product_line || "-"}" para "${after.product_line || "-"}"`);
+    }
+    if (before.quantity !== after.quantity) {
+      changes.push(`quantidade de ${before.quantity} para ${after.quantity}`);
+    }
+    if (before.unit_price !== after.unit_price) {
+      changes.push(`preço unitário de ${currency(before.unit_price)} para ${currency(after.unit_price)}`);
+    }
+    if (taskKey(before.task_number, before.task_name) !== taskKey(after.task_number, after.task_name)) {
+      changes.push("tarefa alterada");
+    }
+    return changes;
+  }
+
   async function confirmAndComplete() {
     if (!items || !budgetId) return;
     setSaving(true);
@@ -456,12 +498,30 @@ export function UnifiedBudgetPanel({
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (removedIds.length > 0) {
-      const { error: delErr } = await supabase.from("unified_budget_items").delete().in("id", removedIds);
+    const itemLogs: Record<string, unknown>[] = [];
+
+    if (removedItems.length > 0) {
+      const { error: delErr } = await supabase
+        .from("unified_budget_items")
+        .delete()
+        .in(
+          "id",
+          removedItems.map((r) => r.id)
+        );
       if (delErr) {
         setError(delErr.message);
         setSaving(false);
         return;
+      }
+      for (const r of removedItems) {
+        itemLogs.push({
+          case_id: caseId,
+          actor_id: user?.id,
+          actor_email: user?.email,
+          stage: "orcamento_unificado",
+          action: "item_excluido",
+          description: `Excluiu o item "${r.description}" do orçamento unificado.`,
+        });
       }
     }
 
@@ -486,6 +546,16 @@ export function UnifiedBudgetPanel({
           setSaving(false);
           return;
         }
+        itemLogs.push({
+          case_id: caseId,
+          actor_id: user?.id,
+          actor_email: user?.email,
+          stage: "orcamento_unificado",
+          action: "item_criado",
+          description: `Adicionou o item "${it.description}" ao orçamento unificado${
+            it.task_name ? ` (${it.task_number != null ? `Tarefa ${it.task_number} — ` : ""}${it.task_name})` : ""
+          }.`,
+        });
       } else {
         const { error: updErr } = await supabase
           .from("unified_budget_items")
@@ -506,20 +576,49 @@ export function UnifiedBudgetPanel({
           setSaving(false);
           return;
         }
+
+        const before = originalItems[it.id];
+        if (before) {
+          const changes = describeFieldChanges(before, it);
+          if (changes.length > 0) {
+            itemLogs.push({
+              case_id: caseId,
+              actor_id: user?.id,
+              actor_email: user?.email,
+              stage: "orcamento_unificado",
+              action: "item_editado",
+              description: `Editou o item "${it.description}" no orçamento unificado: ${changes.join("; ")}.`,
+            });
+          }
+          if (before.included !== it.included) {
+            itemLogs.push({
+              case_id: caseId,
+              actor_id: user?.id,
+              actor_email: user?.email,
+              stage: "orcamento_unificado",
+              action: it.included ? "item_incluido" : "item_excluido_selecao",
+              description: `${it.included ? "Reincluiu" : "Excluiu"} o item "${it.description}" do orçamento final.`,
+            });
+          }
+        }
       }
     }
 
     await supabase.from("unified_budgets").update({ base_total: total }).eq("id", budgetId);
 
-    await supabase.from("activity_log").insert({
-      case_id: caseId,
-      actor_id: user?.id,
-      actor_email: user?.email,
-      action: "orcamento_unificado_concluido",
-      description: `Concluiu a unificação com ${items.filter((it) => it.included).length} de ${
-        items.length
-      } item(ns) incluído(s), total ${currency(total)}.`,
-    });
+    await supabase.from("activity_log").insert([
+      {
+        case_id: caseId,
+        actor_id: user?.id,
+        actor_email: user?.email,
+        stage: "orcamento_unificado",
+        action: "orcamento_unificado_concluido",
+        description: `Concluiu a unificação com ${items.filter((it) => it.included).length} de ${
+          items.length
+        } item(ns) incluído(s), total ${currency(total)}.`,
+      },
+      ...itemLogs,
+    ]);
 
     setSaving(false);
     await onCompleted();
