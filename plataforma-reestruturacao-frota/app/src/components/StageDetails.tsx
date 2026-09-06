@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { createClient } from "@/lib/supabase/client";
 import { CaseStatus } from "@/types/domain";
+
+function finalY(doc: jsPDF): number {
+  return (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+}
 
 function currency(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -69,8 +75,53 @@ function MechanicalSummary({ caseId }: { caseId: string }) {
   const groups = groupByTask(items.map((it) => ({ ...it, task_name: it.task_name || "" })));
   const total = items.reduce((s, it) => s + it.estimated_cost, 0);
 
+  function downloadPdf() {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("Resultado da Inspeção Mecânica", 14, 16);
+    doc.setFontSize(9);
+    doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 22);
+
+    let y = 28;
+    for (const g of groups) {
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setFontSize(11);
+      doc.text(g.taskNumber != null ? `Tarefa ${g.taskNumber}${g.taskName ? ` — ${g.taskName}` : ""}` : "Sem tarefa", 14, y);
+      y += 4;
+      autoTable(doc, {
+        startY: y,
+        head: [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total"]],
+        body: g.entries.map((it) => [
+          it.product_line || "",
+          it.part_number || "",
+          it.description,
+          String(it.quantity ?? ""),
+          currency(it.estimated_cost),
+        ]),
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [1, 45, 43] },
+        margin: { left: 14, right: 14 },
+      });
+      y = finalY(doc) + 8;
+    }
+
+    doc.setFontSize(12);
+    doc.text(`Total: ${currency(total)}`, 14, y);
+    doc.save(`inspecao-mecanica-${caseId}.pdf`);
+  }
+
   return (
     <div className="space-y-2">
+      <button
+        type="button"
+        onClick={downloadPdf}
+        className="rounded-md border px-3 py-1.5 text-xs hover:bg-ekotruck-darkGreen/5"
+      >
+        📄 Baixar PDF da inspeção mecânica
+      </button>
       {groups.map((g) => (
         <div key={taskKey(g.taskNumber, g.taskName)} className="overflow-x-auto rounded-md border">
           <div className="bg-ekotruck-darkGreen/5 px-2 py-1 text-xs font-semibold text-ekotruck-darkGreen">
@@ -152,8 +203,88 @@ function InspectionSummary({ caseId }: { caseId: string }) {
 
   const avariados = points.filter((p) => p.status === "avariado");
 
+  function downloadPdf() {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("Resultado da Vistoria", 14, 16);
+    doc.setFontSize(9);
+    doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 22);
+    doc.text(`${points.length} pontos vistoriados — ${avariados.length} avariado(s)`, 14, 27);
+
+    autoTable(doc, {
+      startY: 32,
+      head: [["Nº", "Ponto", "Status", "Tipo de avaria"]],
+      body: points.map((p) => [
+        p.point_number ?? "",
+        p.description,
+        p.status === "avariado" ? "Avariado" : "OK",
+        p.damage_type || "",
+      ]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [1, 45, 43] },
+      margin: { left: 14, right: 14 },
+    });
+
+    let y = finalY(doc) + 10;
+    let grandTotal = 0;
+    for (const p of avariados) {
+      const itsParts = parts.filter((part) => part.checklist_item_id === p.id);
+      if (itsParts.length === 0) continue;
+      const subtotal = itsParts.reduce((s, it) => s + it.total_price, 0);
+      grandTotal += subtotal;
+
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setFontSize(10);
+      doc.text(
+        `${p.point_number != null ? `${p.point_number}. ` : ""}${p.description}${
+          p.damage_type ? ` — ${p.damage_type}` : ""
+        }`,
+        14,
+        y
+      );
+      y += 4;
+      if (p.justification) {
+        doc.setFontSize(8);
+        doc.text(p.justification, 14, y);
+        y += 4;
+      }
+      autoTable(doc, {
+        startY: y,
+        head: [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total"]],
+        body: itsParts.map((it) => [
+          it.product_line || "",
+          it.part_number || "",
+          it.description,
+          String(it.quantity ?? ""),
+          currency(it.total_price),
+        ]),
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [1, 45, 43] },
+        margin: { left: 14, right: 14 },
+      });
+      y = finalY(doc) + 8;
+    }
+
+    if (grandTotal > 0) {
+      doc.setFontSize(12);
+      doc.text(`Total: ${currency(grandTotal)}`, 14, y);
+    }
+
+    doc.save(`vistoria-${caseId}.pdf`);
+  }
+
   return (
     <div className="space-y-2 text-xs">
+      <button
+        type="button"
+        onClick={downloadPdf}
+        className="rounded-md border px-3 py-1.5 text-xs hover:bg-ekotruck-darkGreen/5"
+      >
+        📄 Baixar PDF da vistoria
+      </button>
       <p className="text-ekotruck-gray">
         {points.length} pontos vistoriados — {avariados.length} avariado(s)
       </p>
@@ -234,8 +365,55 @@ function UnifiedBudgetSummary({ caseId }: { caseId: string }) {
   const groups = groupByTask(items.map((it) => ({ ...it, task_name: it.task_name || "" })));
   const total = items.filter((it) => it.included).reduce((s, it) => s + it.cost, 0);
 
+  function downloadPdf() {
+    const included = items.filter((it) => it.included);
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("Orçamento Unificado", 14, 16);
+    doc.setFontSize(9);
+    doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 22);
+
+    let y = 28;
+    const includedGroups = groupByTask(included.map((it) => ({ ...it, task_name: it.task_name || "" })));
+    for (const g of includedGroups) {
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setFontSize(11);
+      doc.text(g.taskNumber != null ? `Tarefa ${g.taskNumber}${g.taskName ? ` — ${g.taskName}` : ""}` : g.taskName || "Sem tarefa", 14, y);
+      y += 4;
+      autoTable(doc, {
+        startY: y,
+        head: [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total"]],
+        body: g.entries.map((it) => [
+          it.product_line || "",
+          it.part_number || "",
+          it.description,
+          String(it.quantity ?? ""),
+          currency(it.cost),
+        ]),
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [1, 45, 43] },
+        margin: { left: 14, right: 14 },
+      });
+      y = finalY(doc) + 8;
+    }
+
+    doc.setFontSize(12);
+    doc.text(`Total: ${currency(total)}`, 14, y);
+    doc.save(`orcamento-unificado-${caseId}.pdf`);
+  }
+
   return (
     <div className="space-y-2 text-xs">
+      <button
+        type="button"
+        onClick={downloadPdf}
+        className="rounded-md border px-3 py-1.5 text-xs hover:bg-ekotruck-darkGreen/5"
+      >
+        📄 Baixar PDF do orçamento
+      </button>
       {groups.map((g) => (
         <div key={taskKey(g.taskNumber, g.taskName)} className="overflow-x-auto rounded-md border">
           <div className="bg-ekotruck-darkGreen/5 px-2 py-1 font-semibold text-ekotruck-darkGreen">
