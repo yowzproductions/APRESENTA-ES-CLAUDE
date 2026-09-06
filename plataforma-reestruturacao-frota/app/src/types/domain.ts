@@ -41,6 +41,7 @@ export interface ReturnCase {
   dueAt: string | null;
   baseTotal: number | null;
   finalTotal: number | null;
+  moderationSavings: number | null;
 }
 
 export interface FilterOption {
