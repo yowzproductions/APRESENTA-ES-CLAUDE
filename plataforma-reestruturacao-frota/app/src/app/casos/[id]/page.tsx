@@ -29,6 +29,13 @@ export default async function CaseDetail({ params }: { params: { id: string } })
 
   const savings =
     c.baseTotal != null && c.finalTotal != null ? c.baseTotal - c.finalTotal : null;
+  // Economia da moderação (itens desconsiderados) separada da economia obtida
+  // depois, na precificação (troca de marca/oficina), sobre o que sobrou aprovado.
+  const moderationSavings = c.moderationSavings;
+  const afterModerationTotal =
+    c.baseTotal != null && moderationSavings != null ? c.baseTotal - moderationSavings : null;
+  const pricingSavings =
+    afterModerationTotal != null && c.finalTotal != null ? afterModerationTotal - c.finalTotal : null;
 
   return (
     <div>
@@ -73,8 +80,18 @@ export default async function CaseDetail({ params }: { params: { id: string } })
               <p className="text-sm font-semibold">{currency(c.finalTotal)}</p>
             </div>
             <div>
-              <p className="text-xs text-ekotruck-gray">Economia</p>
+              <p className="text-xs text-ekotruck-gray">Economia total</p>
               <p className="text-sm font-semibold text-emerald-600">{currency(savings)}</p>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-center">
+            <div>
+              <p className="text-xs text-ekotruck-gray">Economia da moderação</p>
+              <p className="text-sm font-semibold text-emerald-600">{currency(moderationSavings)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-ekotruck-gray">Economia da precificação</p>
+              <p className="text-sm font-semibold text-emerald-600">{currency(pricingSavings)}</p>
             </div>
           </div>
         </section>

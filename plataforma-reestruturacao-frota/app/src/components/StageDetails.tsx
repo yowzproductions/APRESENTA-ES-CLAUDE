@@ -550,7 +550,7 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
                 currency(it.cost),
                 it.outsourced
                   ? `Terceirizado (${it.outsourced_to || "-"})`
-                  : brandLabel(it.brand) + (it.brand !== "scania" && it.supplier ? ` — ${it.supplier}` : ""),
+                  : brandLabel(it.brand) + (it.brand === "ekotruck_spot" && it.supplier ? ` — ${it.supplier}` : ""),
               ]
             : [it.product_line || "", it.part_number || "", it.description, String(it.quantity ?? ""), currency(it.cost)]
         ),
@@ -599,7 +599,7 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
                     <td className="px-2 py-1">
                       {it.outsourced
                         ? `Terceirizado (${it.outsourced_to || "-"})`
-                        : brandLabel(it.brand) + (it.brand !== "scania" && it.supplier ? ` — ${it.supplier}` : "")}
+                        : brandLabel(it.brand) + (it.brand === "ekotruck_spot" && it.supplier ? ` — ${it.supplier}` : "")}
                     </td>
                   )}
                 </tr>
