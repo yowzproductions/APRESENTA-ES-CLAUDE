@@ -28,11 +28,14 @@ export default function DefinirSenha() {
     }
     setStatus("loading");
     const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ password });
+    const { data, error } = await supabase.auth.updateUser({ password });
     if (error) {
       setStatus("error");
       setMessage(error.message);
       return;
+    }
+    if (data.user) {
+      await supabase.from("profiles").update({ must_change_password: false }).eq("id", data.user.id);
     }
     setStatus("done");
     setMessage("Senha definida! Redirecionando...");

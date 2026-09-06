@@ -18,7 +18,7 @@ export default function Login() {
     e.preventDefault();
     setStatus("loading");
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setStatus("error");
       setMessage(
@@ -28,6 +28,20 @@ export default function Login() {
       );
       return;
     }
+
+    if (data.user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("must_change_password")
+        .eq("id", data.user.id)
+        .single();
+      if (profile?.must_change_password) {
+        router.push("/definir-senha");
+        router.refresh();
+        return;
+      }
+    }
+
     router.push(params.get("next") || "/");
     router.refresh();
   }
@@ -69,7 +83,7 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-md border px-3 py-2 text-sm"
-              placeholder="voce@ekotruck.com"
+              placeholder="voce@empresa.com"
             />
           </div>
           <div>
