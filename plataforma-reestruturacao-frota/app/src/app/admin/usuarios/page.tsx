@@ -44,8 +44,9 @@ export default async function AdminUsuarios() {
     <div>
       <h1 className="mb-1 text-xl font-semibold">Usuários</h1>
       <p className="mb-6 text-sm text-ekotruck-gray">
-        Convide novos usuários por e-mail. No primeiro acesso, cada um define a
-        própria senha pelo link recebido.
+        Crie o acesso de qualquer pessoa por e-mail (não precisa ser de um domínio específico) com uma senha
+        padrão gerada na hora — ela troca a senha no primeiro login e, se esquecer depois, recupera pelo próprio
+        e-mail. Escolha também o que cada pessoa pode ver ou editar em cada etapa do workflow.
       </p>
 
       <InviteForm />

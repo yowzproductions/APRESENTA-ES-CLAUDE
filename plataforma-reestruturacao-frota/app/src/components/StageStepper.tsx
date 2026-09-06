@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CaseStatus, STAGE_ORDER } from "@/types/domain";
-import { StageAttachment, StageProgress, StageState } from "@/lib/data";
+import { StageAccess, StageAttachment, StageProgress, StageState } from "@/lib/data";
 import { sanitizeFileName } from "@/lib/sanitizeFileName";
 import { MechanicalInspectionPanel } from "./MechanicalInspectionPanel";
 import { InspectionChecklistPanel } from "./InspectionChecklistPanel";
@@ -47,10 +47,12 @@ export function StageStepper({
   caseId,
   progress,
   attachments,
+  access,
 }: {
   caseId: string;
   progress: Record<string, StageProgress>;
   attachments: Record<string, StageAttachment[]>;
+  access?: Record<string, StageAccess>;
 }) {
   const router = useRouter();
   const [busyStage, setBusyStage] = useState<string | null>(null);
@@ -206,6 +208,9 @@ export function StageStepper({
   return (
     <div className="space-y-3">
       {STAGE_ORDER.map((s, i) => {
+        const myAccess: StageAccess = access?.[s.status] ?? "editar";
+        if (myAccess === "oculto") return null;
+
         const state = effective(s.status, i);
         const isLocked = activeIndex !== -1 && i > activeIndex;
         const p = progress[s.status];
@@ -276,6 +281,46 @@ export function StageStepper({
             >
               <span>{s.label}</span>
               <span className="text-xs">Aguardando etapas anteriores</span>
+            </div>
+          );
+        }
+
+        if (myAccess === "visualizar") {
+          const hasDetails =
+            s.status === MECHANICAL_STAGE ||
+            s.status === INSPECTION_STAGE ||
+            s.status === UNIFIED_BUDGET_STAGE ||
+            s.status === OPTIMIZATION_STAGE ||
+            s.status === EXECUTION_STAGE;
+          return (
+            <div key={s.status} className="rounded-lg border-2 border-ekotruck-darkGreen/20 bg-white px-4 py-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="font-semibold text-ekotruck-darkGreen">{s.label}</span>
+                <span className="rounded-full bg-ekotruck-darkGreen/10 px-2.5 py-0.5 text-xs font-medium text-ekotruck-darkGreen">
+                  Etapa atual — somente leitura
+                </span>
+              </div>
+              {hasDetails ? (
+                <StageDetails caseId={caseId} stage={s.status} />
+              ) : (
+                <div className="text-sm text-ekotruck-gray">
+                  {p?.dueAt ? `Prazo: ${fmt(p.dueAt)}` : "Nenhum prazo definido."}
+                  {stageFiles.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {stageFiles.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => openAttachment(f.url)}
+                          className="text-xs text-ekotruck-orange hover:underline"
+                        >
+                          📎 anexo ({new Date(f.uploadedAt).toLocaleDateString("pt-BR")})
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         }

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import {
   getCaseActivity,
   getCaseById,
+  getMyStageAccess,
   getStageAttachments,
   getStageProgress,
 } from "@/lib/data";
@@ -15,11 +16,12 @@ function currency(v: number | null) {
 }
 
 export default async function CaseDetail({ params }: { params: { id: string } }) {
-  const [c, activity, progress, stageAttachments] = await Promise.all([
+  const [c, activity, progress, stageAttachments, stageAccess] = await Promise.all([
     getCaseById(params.id),
     getCaseActivity(params.id),
     getStageProgress(params.id),
     getStageAttachments(params.id),
+    getMyStageAccess(),
   ]);
   if (!c) notFound();
 
@@ -70,7 +72,12 @@ export default async function CaseDetail({ params }: { params: { id: string } })
 
       <div className="mb-8">
         <h2 className="mb-3 font-medium text-ekotruck-darkGreen">Progresso do caso</h2>
-        <StageStepper caseId={c.id} progress={progress} attachments={attachmentsByStage} />
+        <StageStepper
+          caseId={c.id}
+          progress={progress}
+          attachments={attachmentsByStage}
+          access={stageAccess}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">

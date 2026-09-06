@@ -89,6 +89,31 @@ export async function getCaseById(id: string): Promise<ReturnCase | undefined> {
   return cases.find((c) => c.id === id);
 }
 
+export type StageAccess = "oculto" | "visualizar" | "editar";
+
+// Acesso por etapa do usuário logado. Admin sempre tem acesso total.
+// Ausência de registro para uma etapa também significa acesso total —
+// só restringe quem o admin explicitamente restringir na criação do acesso.
+export async function getMyStageAccess(): Promise<Record<string, StageAccess>> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return {};
+
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  if (profile?.role === "admin") return {};
+
+  const { data: perms } = await supabase
+    .from("stage_permissions")
+    .select("stage, access")
+    .eq("profile_id", user.id);
+
+  const map: Record<string, StageAccess> = {};
+  for (const p of perms ?? []) map[p.stage] = p.access as StageAccess;
+  return map;
+}
+
 export type StageState = "pendente" | "em_andamento" | "concluido" | "nao_se_aplica";
 
 export interface StageProgress {
