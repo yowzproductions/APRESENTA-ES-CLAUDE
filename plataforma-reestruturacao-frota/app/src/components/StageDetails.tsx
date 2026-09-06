@@ -620,11 +620,14 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
 
 interface Incident {
   kind: "adicionado" | "removido";
+  category: "peca" | "servico";
   description: string;
   part_number: string | null;
   quantity: number;
   unit_price: number;
   cost: number;
+  brand: PartBrand;
+  supplier: string | null;
 }
 
 function ExecutionSummary({ caseId }: { caseId: string }) {
@@ -660,14 +663,16 @@ function ExecutionSummary({ caseId }: { caseId: string }) {
 
     autoTable(doc, {
       startY: 28,
-      head: [["Tipo", "Partnumber", "Descrição", "Qtde.", "Preço Unit.", "Custo"]],
+      head: [["Tipo", "Categoria", "Partnumber", "Descrição", "Qtde.", "Preço Unit.", "Custo", "Marca / Fornecedor"]],
       body: incidents.map((it) => [
         it.kind === "adicionado" ? "Adicionado" : "Removido",
+        it.category === "peca" ? "Peça" : "Serviço",
         it.part_number || "",
         it.description,
         String(it.quantity ?? ""),
         currency(it.unit_price),
         currency(it.cost),
+        it.category === "peca" ? brandLabel(it.brand) + (it.supplier ? ` — ${it.supplier}` : "") : it.supplier || "",
       ]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [1, 45, 43] },
@@ -707,10 +712,15 @@ function ExecutionSummary({ caseId }: { caseId: string }) {
                     {it.kind === "adicionado" ? "Adicionado" : "Removido"}
                   </span>
                 </td>
+                <td className="px-2 py-1">{it.category === "peca" ? "Peça" : "Serviço"}</td>
                 <td className="px-2 py-1">{it.part_number}</td>
                 <td className="px-2 py-1">{it.description}</td>
                 <td className="px-2 py-1">{it.quantity}</td>
                 <td className="px-2 py-1">{currency(it.cost)}</td>
+                <td className="px-2 py-1">
+                  {it.category === "peca" ? brandLabel(it.brand) : it.supplier || "-"}
+                  {it.category === "peca" && it.supplier ? ` — ${it.supplier}` : ""}
+                </td>
               </tr>
             ))}
           </tbody>
