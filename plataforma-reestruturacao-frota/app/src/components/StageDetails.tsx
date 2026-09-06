@@ -440,6 +440,14 @@ function UnifiedBudgetSummary({ caseId }: { caseId: string }) {
   );
 }
 
+type PartBrand = "scania" | "ekotruck" | "ekotruck_spot";
+
+function brandLabel(b: PartBrand | null) {
+  if (b === "ekotruck") return "Ekotruck";
+  if (b === "ekotruck_spot") return "Ekotruck Spot";
+  return "Scania Original";
+}
+
 interface OptItem {
   description: string;
   product_line: string | null;
@@ -451,18 +459,25 @@ interface OptItem {
   justification: string | null;
   task_number: number | null;
   task_name: string | null;
+  source_unified_budget_item_id: string | null;
+  brand: PartBrand | null;
+  supplier: string | null;
+  outsourced: boolean;
+  outsourced_to: string | null;
 }
 
 function OptimizationSummary({ caseId }: { caseId: string }) {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<OptItem[]>([]);
+  const [pricingDone, setPricingDone] = useState(false);
+  const [originalCosts, setOriginalCosts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     (async () => {
       const supabase = createClient();
       const { data: optimization } = await supabase
         .from("budget_optimizations")
-        .select("id")
+        .select("id, completed_at")
         .eq("case_id", caseId)
         .order("started_at", { ascending: false })
         .limit(1)
@@ -471,8 +486,21 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
         setLoading(false);
         return;
       }
+      setPricingDone(!!optimization.completed_at);
       const { data } = await supabase.from("optimization_items").select("*").eq("optimization_id", optimization.id);
-      setItems((data as OptItem[]) ?? []);
+      const loaded = (data as OptItem[]) ?? [];
+      setItems(loaded);
+
+      const sourceIds = Array.from(
+        new Set(loaded.map((it) => it.source_unified_budget_item_id).filter((id): id is string => !!id))
+      );
+      if (sourceIds.length > 0) {
+        const { data: sourceItems } = await supabase
+          .from("unified_budget_items")
+          .select("id, cost")
+          .in("id", sourceIds);
+        setOriginalCosts(Object.fromEntries((sourceItems ?? []).map((s: any) => [s.id, s.cost])));
+      }
       setLoading(false);
     })();
   }, [caseId]);
@@ -481,13 +509,19 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
   if (items.length === 0) return <p className="text-xs text-ekotruck-gray">Nenhum item registrado.</p>;
 
   const groups = groupByTask(items.map((it) => ({ ...it, task_name: it.task_name || "" })));
-  const total = items.filter((it) => it.approved).reduce((s, it) => s + it.cost, 0);
+  const approvedItems = items.filter((it) => it.approved);
+  const total = approvedItems.reduce((s, it) => s + it.cost, 0);
+  const totalOriginal = approvedItems.reduce(
+    (s, it) => s + (it.source_unified_budget_item_id ? originalCosts[it.source_unified_budget_item_id] ?? it.cost : it.cost),
+    0
+  );
+  const savings = totalOriginal - total;
 
   function downloadPdf() {
     const approved = items.filter((it) => it.approved);
     const doc = new jsPDF();
     doc.setFontSize(14);
-    doc.text("Moderação da Otimização", 14, 16);
+    doc.text(pricingDone ? "Otimização — Moderação e Precificação" : "Moderação da Otimização", 14, 16);
     doc.setFontSize(9);
     doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 22);
 
@@ -503,14 +537,23 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
       y += 4;
       autoTable(doc, {
         startY: y,
-        head: [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total"]],
-        body: g.entries.map((it) => [
-          it.product_line || "",
-          it.part_number || "",
-          it.description,
-          String(it.quantity ?? ""),
-          currency(it.cost),
-        ]),
+        head: pricingDone
+          ? [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total", "Otimização"]]
+          : [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total"]],
+        body: g.entries.map((it) =>
+          pricingDone
+            ? [
+                it.product_line || "",
+                it.part_number || "",
+                it.description,
+                String(it.quantity ?? ""),
+                currency(it.cost),
+                it.outsourced
+                  ? `Terceirizado (${it.outsourced_to || "-"})`
+                  : brandLabel(it.brand) + (it.brand !== "scania" && it.supplier ? ` — ${it.supplier}` : ""),
+              ]
+            : [it.product_line || "", it.part_number || "", it.description, String(it.quantity ?? ""), currency(it.cost)]
+        ),
         styles: { fontSize: 8 },
         headStyles: { fillColor: [1, 45, 43] },
         margin: { left: 14, right: 14 },
@@ -520,7 +563,11 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
 
     doc.setFontSize(12);
     doc.text(`Total: ${currency(total)}`, 14, y);
-    doc.save(`moderacao-${caseId}.pdf`);
+    if (pricingDone) {
+      y += 6;
+      doc.text(`Economia em relação ao orçamento original: ${currency(savings)}`, 14, y);
+    }
+    doc.save(`otimizacao-${caseId}.pdf`);
   }
 
   return (
@@ -530,7 +577,7 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
         onClick={downloadPdf}
         className="rounded-md border px-3 py-1.5 text-xs hover:bg-ekotruck-darkGreen/5"
       >
-        📄 Baixar PDF da moderação
+        📄 Baixar PDF da {pricingDone ? "otimização" : "moderação"}
       </button>
       {groups.map((g) => (
         <div key={taskKey(g.taskNumber, g.taskName)} className="overflow-x-auto rounded-md border">
@@ -548,6 +595,13 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
                   <td className="px-2 py-1">{it.quantity}</td>
                   <td className="px-2 py-1">{currency(it.cost)}</td>
                   <td className="px-2 py-1">{it.approved ? "Aprovado" : it.justification || "Desconsiderado"}</td>
+                  {pricingDone && it.approved && (
+                    <td className="px-2 py-1">
+                      {it.outsourced
+                        ? `Terceirizado (${it.outsourced_to || "-"})`
+                        : brandLabel(it.brand) + (it.brand !== "scania" && it.supplier ? ` — ${it.supplier}` : "")}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -555,6 +609,11 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
         </div>
       ))}
       <div className="text-right font-semibold">Total aprovado: {currency(total)}</div>
+      {pricingDone && (
+        <div className="text-right font-semibold text-emerald-700">
+          Economia em relação ao orçamento original: {currency(savings)}
+        </div>
+      )}
     </div>
   );
 }
