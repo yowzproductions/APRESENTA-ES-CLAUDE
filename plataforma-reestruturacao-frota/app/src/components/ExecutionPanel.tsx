@@ -15,15 +15,26 @@ function parseCurrencyInput(raw: string): number {
 }
 
 type IncidentKind = "adicionado" | "removido";
+type IncidentCategory = "peca" | "servico";
+type PartBrand = "scania" | "ekotruck" | "ekotruck_spot";
+
+function brandLabel(b: PartBrand) {
+  if (b === "ekotruck") return "Ekotruck";
+  if (b === "ekotruck_spot") return "Ekotruck Spot";
+  return "Scania Original";
+}
 
 interface Incident {
   id: string;
   kind: IncidentKind;
+  category: IncidentCategory;
   description: string;
   part_number: string;
   quantity: number;
   unit_price: number;
   cost: number;
+  brand: PartBrand;
+  supplier: string | null;
 }
 
 export function ExecutionPanel({
@@ -41,10 +52,13 @@ export function ExecutionPanel({
   const [incidents, setIncidents] = useState<Incident[]>([]);
 
   const [kind, setKind] = useState<IncidentKind>("adicionado");
+  const [category, setCategory] = useState<IncidentCategory>("peca");
   const [description, setDescription] = useState("");
   const [partNumber, setPartNumber] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [unitPrice, setUnitPrice] = useState(0);
+  const [brand, setBrand] = useState<PartBrand>("scania");
+  const [supplier, setSupplier] = useState("");
 
   async function load() {
     setLoading(true);
@@ -63,6 +77,15 @@ export function ExecutionPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
 
+  function resetForm() {
+    setDescription("");
+    setPartNumber("");
+    setQuantity(1);
+    setUnitPrice(0);
+    setBrand("scania");
+    setSupplier("");
+  }
+
   async function addIncident() {
     if (!description.trim()) {
       setError("Descreva o imprevisto.");
@@ -76,20 +99,19 @@ export function ExecutionPanel({
     } = await supabase.auth.getUser();
 
     const cost = Math.round(quantity * unitPrice * 100) / 100;
-    const { data: inserted, error: insErr } = await supabase
-      .from("execution_incidents")
-      .insert({
-        case_id: caseId,
-        kind,
-        description: description.trim(),
-        part_number: partNumber.trim() || null,
-        quantity,
-        unit_price: unitPrice,
-        cost,
-        created_by: user?.id,
-      })
-      .select("id")
-      .single();
+    const { error: insErr } = await supabase.from("execution_incidents").insert({
+      case_id: caseId,
+      kind,
+      category,
+      description: description.trim(),
+      part_number: category === "peca" ? partNumber.trim() || null : null,
+      quantity,
+      unit_price: unitPrice,
+      cost,
+      brand: category === "peca" ? brand : "scania",
+      supplier: supplier.trim() || null,
+      created_by: user?.id,
+    });
     if (insErr) {
       setError(insErr.message);
       setSaving(false);
@@ -102,18 +124,16 @@ export function ExecutionPanel({
       actor_email: user?.email,
       stage: "em_execucao",
       action: kind === "adicionado" ? "imprevisto_adicionado" : "imprevisto_removido",
-      description: `${kind === "adicionado" ? "Adicionou" : "Removeu"} o imprevisto "${description.trim()}" (${currency(
-        cost
-      )}).`,
+      description: `${kind === "adicionado" ? "Adicionou" : "Removeu"} o imprevisto de ${
+        category === "peca" ? "peça" : "serviço"
+      } "${description.trim()}" (${currency(cost)})${
+        category === "peca" ? `, marca ${brandLabel(brand)}` : ""
+      }${supplier.trim() ? `, fornecedor ${supplier.trim()}` : ""}.`,
     });
 
-    setDescription("");
-    setPartNumber("");
-    setQuantity(1);
-    setUnitPrice(0);
+    resetForm();
     setSaving(false);
     await load();
-    void inserted;
   }
 
   async function removeIncident(incident: Incident) {
@@ -157,8 +177,8 @@ export function ExecutionPanel({
   return (
     <div className="space-y-3">
       <p className="text-sm text-ekotruck-gray">
-        Manutenção sempre tem imprevistos: registre aqui o que precisou ser colocado ou tirado durante a execução,
-        a qualquer momento — o impacto entra na conta final do veículo.
+        Manutenção sempre tem imprevistos: registre aqui a peça ou o serviço que precisou ser colocado ou tirado
+        durante a execução, a qualquer momento — o impacto entra na conta final do veículo.
       </p>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -169,11 +189,13 @@ export function ExecutionPanel({
             <thead className="bg-ekotruck-darkGreen/5 text-left uppercase text-ekotruck-gray">
               <tr>
                 <th className="px-2 py-1.5">Tipo</th>
+                <th className="px-2 py-1.5">Categoria</th>
                 <th className="px-2 py-1.5">Partnumber</th>
                 <th className="px-2 py-1.5">Descrição</th>
                 <th className="px-2 py-1.5">Qtde.</th>
                 <th className="px-2 py-1.5">Preço Unit.</th>
                 <th className="px-2 py-1.5">Custo</th>
+                <th className="px-2 py-1.5">Marca / Fornecedor</th>
                 <th className="px-2 py-1.5"></th>
               </tr>
             </thead>
@@ -189,11 +211,16 @@ export function ExecutionPanel({
                       {it.kind === "adicionado" ? "Adicionado" : "Removido"}
                     </span>
                   </td>
+                  <td className="px-2 py-1.5">{it.category === "peca" ? "Peça" : "Serviço"}</td>
                   <td className="px-2 py-1.5">{it.part_number || "-"}</td>
                   <td className="px-2 py-1.5">{it.description}</td>
                   <td className="px-2 py-1.5">{it.quantity}</td>
                   <td className="px-2 py-1.5">{currency(it.unit_price)}</td>
                   <td className="px-2 py-1.5">{currency(it.cost)}</td>
+                  <td className="px-2 py-1.5">
+                    {it.category === "peca" ? brandLabel(it.brand) : it.supplier || "-"}
+                    {it.category === "peca" && it.supplier ? ` — ${it.supplier}` : ""}
+                  </td>
                   <td className="px-2 py-1.5">
                     <button
                       type="button"
@@ -232,15 +259,36 @@ export function ExecutionPanel({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium">Partnumber</label>
-          <input
-            type="text"
-            value={partNumber}
-            onChange={(e) => setPartNumber(e.target.value)}
+          <label className="mb-1 block text-xs font-medium">Categoria</label>
+          <select
+            value={category}
+            onChange={(e) => {
+              const cat = e.target.value as IncidentCategory;
+              setCategory(cat);
+              if (cat === "servico") {
+                setPartNumber("");
+                setBrand("scania");
+              }
+            }}
             disabled={saving || disabled}
-            className="w-28 rounded border px-2 py-1.5 text-sm"
-          />
+            className="rounded border px-2 py-1.5 text-sm"
+          >
+            <option value="peca">Peça</option>
+            <option value="servico">Serviço</option>
+          </select>
         </div>
+        {category === "peca" && (
+          <div>
+            <label className="mb-1 block text-xs font-medium">Partnumber</label>
+            <input
+              type="text"
+              value={partNumber}
+              onChange={(e) => setPartNumber(e.target.value)}
+              disabled={saving || disabled}
+              className="w-28 rounded border px-2 py-1.5 text-sm"
+            />
+          </div>
+        )}
         <div className="flex-1">
           <label className="mb-1 block text-xs font-medium">Descrição</label>
           <input
@@ -273,6 +321,50 @@ export function ExecutionPanel({
             className="w-28 rounded border px-2 py-1.5 text-sm"
           />
         </div>
+        {category === "peca" ? (
+          <div>
+            <label className="mb-1 block text-xs font-medium">Marca</label>
+            <select
+              value={brand}
+              onChange={(e) => {
+                const b = e.target.value as PartBrand;
+                setBrand(b);
+                if (b === "ekotruck") setSupplier("Ekotruck");
+                else if (b === "scania") setSupplier("");
+                else if (brand === "ekotruck") setSupplier("");
+              }}
+              disabled={saving || disabled}
+              className="w-36 rounded border px-2 py-1.5 text-sm"
+            >
+              <option value="scania">Scania Original</option>
+              <option value="ekotruck">Ekotruck</option>
+              <option value="ekotruck_spot">Ekotruck Spot</option>
+            </select>
+          </div>
+        ) : (
+          <div>
+            <label className="mb-1 block text-xs font-medium">Oficina / fornecedor</label>
+            <input
+              type="text"
+              value={supplier}
+              onChange={(e) => setSupplier(e.target.value)}
+              disabled={saving || disabled}
+              className="w-36 rounded border px-2 py-1.5 text-sm"
+            />
+          </div>
+        )}
+        {category === "peca" && brand === "ekotruck_spot" && (
+          <div>
+            <label className="mb-1 block text-xs font-medium">Origem / fornecedor</label>
+            <input
+              type="text"
+              value={supplier}
+              onChange={(e) => setSupplier(e.target.value)}
+              disabled={saving || disabled}
+              className="w-36 rounded border px-2 py-1.5 text-sm"
+            />
+          </div>
+        )}
         <button
           type="button"
           disabled={saving || disabled}
