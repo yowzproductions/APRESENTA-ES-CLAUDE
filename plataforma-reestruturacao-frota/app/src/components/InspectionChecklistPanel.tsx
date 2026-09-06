@@ -204,6 +204,8 @@ export function InspectionChecklistPanel({
       checklist = created;
     }
 
+    const itemLogs: Record<string, unknown>[] = [];
+
     for (const p of points) {
       const damageType = p.status === "avariado" ? (p.damageType === OUTRO ? p.damageTypeOther : p.damageType) : null;
       const partsTotal = p.parts.reduce((s, it) => s + it.totalPrice, 0);
@@ -227,33 +229,61 @@ export function InspectionChecklistPanel({
         return;
       }
 
+      if (p.status === "avariado") {
+        itemLogs.push({
+          case_id: caseId,
+          actor_id: user?.id,
+          actor_email: user?.email,
+          stage,
+          action: "item_criado",
+          description: `Marcou o ponto "${p.pointNumber}. ${p.name}" como avariado (${damageType || "sem tipo"}).`,
+        });
+      }
+
       if (p.parts.length > 0) {
-        const { error: partsErr } = await supabase.from("checklist_item_parts").insert(
-          p.parts.map((it) => ({
-            checklist_item_id: item!.id,
-            description: it.description,
-            product_line: it.productLine,
-            part_number: it.partNumber,
-            quantity: it.quantity,
-            unit_price: it.unitPrice,
-            total_price: it.totalPrice,
-          }))
-        );
+        const { data: insertedParts, error: partsErr } = await supabase
+          .from("checklist_item_parts")
+          .insert(
+            p.parts.map((it) => ({
+              checklist_item_id: item!.id,
+              description: it.description,
+              product_line: it.productLine,
+              part_number: it.partNumber,
+              quantity: it.quantity,
+              unit_price: it.unitPrice,
+              total_price: it.totalPrice,
+            }))
+          )
+          .select("id, description");
         if (partsErr) {
           setError(partsErr.message);
           setSaving(false);
           return;
         }
+        for (const row of insertedParts ?? []) {
+          itemLogs.push({
+            case_id: caseId,
+            actor_id: user?.id,
+            actor_email: user?.email,
+            stage,
+            action: "item_criado",
+            description: `Criou o item "${row.description}" para o ponto "${p.pointNumber}. ${p.name}" (Vistoria).`,
+          });
+        }
       }
     }
 
-    await supabase.from("activity_log").insert({
-      case_id: caseId,
-      actor_id: user?.id,
-      actor_email: user?.email,
-      action: "vistoria_concluida",
-      description: `Concluiu a vistoria com ${damagedCount} ponto(s) avariado(s) de ${points.length}.`,
-    });
+    await supabase.from("activity_log").insert([
+      {
+        case_id: caseId,
+        actor_id: user?.id,
+        actor_email: user?.email,
+        stage,
+        action: "vistoria_concluida",
+        description: `Concluiu a vistoria com ${damagedCount} ponto(s) avariado(s) de ${points.length}.`,
+      },
+      ...itemLogs,
+    ]);
 
     setSaving(false);
     await onCompleted();

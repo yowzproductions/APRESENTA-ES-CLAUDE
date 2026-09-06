@@ -266,32 +266,48 @@ export function MechanicalInspectionPanel({
       inspection = created;
     }
 
-    const { error: itemsErr } = await supabase.from("mechanical_items").insert(
-      items.map((it) => ({
-        inspection_id: inspection!.id,
-        description: it.description,
-        estimated_cost: it.totalPrice,
-        task_number: it.taskNumber,
-        task_name: it.taskName,
-        product_line: it.productLine,
-        part_number: it.partNumber,
-        quantity: it.quantity,
-        unit_price: it.unitPrice,
-      }))
-    );
+    const { data: insertedItems, error: itemsErr } = await supabase
+      .from("mechanical_items")
+      .insert(
+        items.map((it) => ({
+          inspection_id: inspection!.id,
+          description: it.description,
+          estimated_cost: it.totalPrice,
+          task_number: it.taskNumber,
+          task_name: it.taskName,
+          product_line: it.productLine,
+          part_number: it.partNumber,
+          quantity: it.quantity,
+          unit_price: it.unitPrice,
+        }))
+      )
+      .select("id, description, task_number, task_name");
     if (itemsErr) {
       setError(itemsErr.message);
       setSaving(false);
       return;
     }
 
-    await supabase.from("activity_log").insert({
-      case_id: caseId,
-      actor_id: user?.id,
-      actor_email: user?.email,
-      action: "orcamento_mecanico_anexado",
-      description: `Anexou orçamento da inspeção mecânica com ${items.length} item(ns), total ${currency(total)}.`,
-    });
+    await supabase.from("activity_log").insert([
+      {
+        case_id: caseId,
+        actor_id: user?.id,
+        actor_email: user?.email,
+        stage,
+        action: "orcamento_mecanico_anexado",
+        description: `Anexou orçamento da inspeção mecânica com ${items.length} item(ns), total ${currency(total)}.`,
+      },
+      ...(insertedItems ?? []).map((row) => ({
+        case_id: caseId,
+        actor_id: user?.id,
+        actor_email: user?.email,
+        stage,
+        action: "item_criado",
+        description: `Criou o item "${row.description}"${
+          row.task_number != null ? ` (Tarefa ${row.task_number}${row.task_name ? ` — ${row.task_name}` : ""})` : ""
+        } no orçamento da inspeção mecânica.`,
+      })),
+    ]);
 
     setSaving(false);
     await onCompleted();
