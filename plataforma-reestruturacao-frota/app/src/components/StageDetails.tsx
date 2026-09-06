@@ -440,9 +440,129 @@ function UnifiedBudgetSummary({ caseId }: { caseId: string }) {
   );
 }
 
+interface OptItem {
+  description: string;
+  product_line: string | null;
+  part_number: string | null;
+  quantity: number | null;
+  cost: number;
+  source_label: string | null;
+  approved: boolean;
+  justification: string | null;
+  task_number: number | null;
+  task_name: string | null;
+}
+
+function OptimizationSummary({ caseId }: { caseId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<OptItem[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const supabase = createClient();
+      const { data: optimization } = await supabase
+        .from("budget_optimizations")
+        .select("id")
+        .eq("case_id", caseId)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!optimization) {
+        setLoading(false);
+        return;
+      }
+      const { data } = await supabase.from("optimization_items").select("*").eq("optimization_id", optimization.id);
+      setItems((data as OptItem[]) ?? []);
+      setLoading(false);
+    })();
+  }, [caseId]);
+
+  if (loading) return <p className="text-xs text-ekotruck-gray">Carregando...</p>;
+  if (items.length === 0) return <p className="text-xs text-ekotruck-gray">Nenhum item registrado.</p>;
+
+  const groups = groupByTask(items.map((it) => ({ ...it, task_name: it.task_name || "" })));
+  const total = items.filter((it) => it.approved).reduce((s, it) => s + it.cost, 0);
+
+  function downloadPdf() {
+    const approved = items.filter((it) => it.approved);
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("Moderação da Otimização", 14, 16);
+    doc.setFontSize(9);
+    doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 22);
+
+    let y = 28;
+    const approvedGroups = groupByTask(approved.map((it) => ({ ...it, task_name: it.task_name || "" })));
+    for (const g of approvedGroups) {
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setFontSize(11);
+      doc.text(g.taskNumber != null ? `Tarefa ${g.taskNumber}${g.taskName ? ` — ${g.taskName}` : ""}` : g.taskName || "Sem tarefa", 14, y);
+      y += 4;
+      autoTable(doc, {
+        startY: y,
+        head: [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total"]],
+        body: g.entries.map((it) => [
+          it.product_line || "",
+          it.part_number || "",
+          it.description,
+          String(it.quantity ?? ""),
+          currency(it.cost),
+        ]),
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [1, 45, 43] },
+        margin: { left: 14, right: 14 },
+      });
+      y = finalY(doc) + 8;
+    }
+
+    doc.setFontSize(12);
+    doc.text(`Total: ${currency(total)}`, 14, y);
+    doc.save(`moderacao-${caseId}.pdf`);
+  }
+
+  return (
+    <div className="space-y-2 text-xs">
+      <button
+        type="button"
+        onClick={downloadPdf}
+        className="rounded-md border px-3 py-1.5 text-xs hover:bg-ekotruck-darkGreen/5"
+      >
+        📄 Baixar PDF da moderação
+      </button>
+      {groups.map((g) => (
+        <div key={taskKey(g.taskNumber, g.taskName)} className="overflow-x-auto rounded-md border">
+          <div className="bg-ekotruck-darkGreen/5 px-2 py-1 font-semibold text-ekotruck-darkGreen">
+            {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : g.taskName || "Sem tarefa"}
+            {g.taskNumber != null && g.taskName ? ` — ${g.taskName}` : ""}
+          </div>
+          <table className="w-full">
+            <tbody>
+              {g.entries.map((it, i) => (
+                <tr key={i} className={`border-t ${!it.approved ? "bg-red-50/50 line-through" : ""}`}>
+                  <td className="px-2 py-1">{it.source_label}</td>
+                  <td className="px-2 py-1">{it.part_number}</td>
+                  <td className="px-2 py-1">{it.description}</td>
+                  <td className="px-2 py-1">{it.quantity}</td>
+                  <td className="px-2 py-1">{currency(it.cost)}</td>
+                  <td className="px-2 py-1">{it.approved ? "Aprovado" : it.justification || "Desconsiderado"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      <div className="text-right font-semibold">Total aprovado: {currency(total)}</div>
+    </div>
+  );
+}
+
 export function StageDetails({ caseId, stage }: { caseId: string; stage: CaseStatus }) {
   if (stage === "inspecao_mecanica_em_andamento") return <MechanicalSummary caseId={caseId} />;
   if (stage === "vistoria_em_andamento") return <InspectionSummary caseId={caseId} />;
   if (stage === "orcamento_unificado") return <UnifiedBudgetSummary caseId={caseId} />;
+  if (stage === "em_otimizacao") return <OptimizationSummary caseId={caseId} />;
   return null;
 }
