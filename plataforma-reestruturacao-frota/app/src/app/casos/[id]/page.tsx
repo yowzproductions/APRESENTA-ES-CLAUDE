@@ -34,6 +34,9 @@ export default async function CaseDetail({ params }: { params: { id: string } })
   // antes da precificação (troca de marca/oficina) reduzir ainda mais o valor.
   const moderatedTotal =
     c.baseTotal != null && c.moderationSavings != null ? c.baseTotal - c.moderationSavings : null;
+  // Imprevistos da execução (colocado - tirado) contam na conta final do veículo.
+  const incidentsNet = c.incidentsNet ?? 0;
+  const vehicleAccountTotal = c.finalTotal != null ? c.finalTotal + incidentsNet : null;
 
   return (
     <div>
@@ -84,6 +87,22 @@ export default async function CaseDetail({ params }: { params: { id: string } })
             <div>
               <p className="text-xs text-ekotruck-gray">Economia</p>
               <p className="text-sm font-semibold text-emerald-600">{currency(savings)}</p>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-center">
+            <div>
+              <p className="text-xs text-ekotruck-gray">Imprevistos (execução)</p>
+              <p
+                className={`text-sm font-semibold ${
+                  incidentsNet > 0 ? "text-red-600" : incidentsNet < 0 ? "text-emerald-600" : ""
+                }`}
+              >
+                {currency(c.incidentsNet)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-ekotruck-gray">Conta final do veículo</p>
+              <p className="text-sm font-semibold">{currency(vehicleAccountTotal)}</p>
             </div>
           </div>
         </section>
