@@ -618,10 +618,117 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
   );
 }
 
+interface Incident {
+  kind: "adicionado" | "removido";
+  description: string;
+  part_number: string | null;
+  quantity: number;
+  unit_price: number;
+  cost: number;
+}
+
+function ExecutionSummary({ caseId }: { caseId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("execution_incidents")
+        .select("*")
+        .eq("case_id", caseId)
+        .order("created_at", { ascending: true });
+      setIncidents((data as Incident[]) ?? []);
+      setLoading(false);
+    })();
+  }, [caseId]);
+
+  if (loading) return <p className="text-xs text-ekotruck-gray">Carregando...</p>;
+  if (incidents.length === 0) return <p className="text-xs text-ekotruck-gray">Nenhum imprevisto registrado.</p>;
+
+  const addedTotal = incidents.filter((i) => i.kind === "adicionado").reduce((s, i) => s + i.cost, 0);
+  const removedTotal = incidents.filter((i) => i.kind === "removido").reduce((s, i) => s + i.cost, 0);
+  const net = addedTotal - removedTotal;
+
+  function downloadPdf() {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("Imprevistos da Execução", 14, 16);
+    doc.setFontSize(9);
+    doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 22);
+
+    autoTable(doc, {
+      startY: 28,
+      head: [["Tipo", "Partnumber", "Descrição", "Qtde.", "Preço Unit.", "Custo"]],
+      body: incidents.map((it) => [
+        it.kind === "adicionado" ? "Adicionado" : "Removido",
+        it.part_number || "",
+        it.description,
+        String(it.quantity ?? ""),
+        currency(it.unit_price),
+        currency(it.cost),
+      ]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [1, 45, 43] },
+      margin: { left: 14, right: 14 },
+    });
+
+    let y = finalY(doc) + 8;
+    doc.setFontSize(12);
+    doc.text(`Adicionado: ${currency(addedTotal)}`, 14, y);
+    y += 6;
+    doc.text(`Removido: ${currency(removedTotal)}`, 14, y);
+    y += 6;
+    doc.text(`Impacto líquido: ${currency(net)}`, 14, y);
+    doc.save(`imprevistos-${caseId}.pdf`);
+  }
+
+  return (
+    <div className="space-y-2 text-xs">
+      <button
+        type="button"
+        onClick={downloadPdf}
+        className="rounded-md border px-3 py-1.5 text-xs hover:bg-ekotruck-darkGreen/5"
+      >
+        📄 Baixar PDF dos imprevistos
+      </button>
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full">
+          <tbody>
+            {incidents.map((it, i) => (
+              <tr key={i} className="border-t">
+                <td className="px-2 py-1">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      it.kind === "adicionado" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"
+                    }`}
+                  >
+                    {it.kind === "adicionado" ? "Adicionado" : "Removido"}
+                  </span>
+                </td>
+                <td className="px-2 py-1">{it.part_number}</td>
+                <td className="px-2 py-1">{it.description}</td>
+                <td className="px-2 py-1">{it.quantity}</td>
+                <td className="px-2 py-1">{currency(it.cost)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-right font-semibold">
+        Impacto líquido:{" "}
+        <span className={net > 0 ? "text-red-600" : net < 0 ? "text-emerald-700" : ""}>{currency(net)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function StageDetails({ caseId, stage }: { caseId: string; stage: CaseStatus }) {
   if (stage === "inspecao_mecanica_em_andamento") return <MechanicalSummary caseId={caseId} />;
   if (stage === "vistoria_em_andamento") return <InspectionSummary caseId={caseId} />;
   if (stage === "orcamento_unificado") return <UnifiedBudgetSummary caseId={caseId} />;
   if (stage === "em_otimizacao") return <OptimizationSummary caseId={caseId} />;
+  if (stage === "em_execucao") return <ExecutionSummary caseId={caseId} />;
   return null;
 }

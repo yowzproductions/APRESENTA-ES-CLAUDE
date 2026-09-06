@@ -42,6 +42,7 @@ export interface ReturnCase {
   baseTotal: number | null;
   finalTotal: number | null;
   moderationSavings: number | null;
+  incidentsNet: number | null;
 }
 
 export interface FilterOption {
