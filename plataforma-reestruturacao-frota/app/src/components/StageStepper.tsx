@@ -10,12 +10,14 @@ import { MechanicalInspectionPanel } from "./MechanicalInspectionPanel";
 import { InspectionChecklistPanel } from "./InspectionChecklistPanel";
 import { UnifiedBudgetPanel } from "./UnifiedBudgetPanel";
 import { OptimizationPanel } from "./OptimizationPanel";
+import { ExecutionPanel } from "./ExecutionPanel";
 import { StageDetails } from "./StageDetails";
 
 const MECHANICAL_STAGE: CaseStatus = "inspecao_mecanica_em_andamento";
 const INSPECTION_STAGE: CaseStatus = "vistoria_em_andamento";
 const UNIFIED_BUDGET_STAGE: CaseStatus = "orcamento_unificado";
 const OPTIMIZATION_STAGE: CaseStatus = "em_otimizacao";
+const EXECUTION_STAGE: CaseStatus = "em_execucao";
 
 const STATE_LABEL: Record<StageState, string> = {
   pendente: "Pendente",
@@ -214,7 +216,8 @@ export function StageStepper({
             s.status === MECHANICAL_STAGE ||
             s.status === INSPECTION_STAGE ||
             s.status === UNIFIED_BUDGET_STAGE ||
-            s.status === OPTIMIZATION_STAGE;
+            s.status === OPTIMIZATION_STAGE ||
+            s.status === EXECUTION_STAGE;
           const isExpanded = !!expandedStages[s.status];
           return (
             <div
@@ -362,6 +365,16 @@ export function StageStepper({
                   }}
                 />
               </div>
+            ) : s.status === EXECUTION_STAGE ? (
+              <div className="mb-3">
+                <ExecutionPanel
+                  caseId={caseId}
+                  disabled={busyStage === s.status}
+                  onCompleted={async () => {
+                    await updateStage(s.status, i, "concluido", { skipAttachmentHandling: true });
+                  }}
+                />
+              </div>
             ) : (
               requiredMessage && (
                 <div className="mb-3">
@@ -426,7 +439,8 @@ export function StageStepper({
                 {s.status !== MECHANICAL_STAGE &&
                   s.status !== INSPECTION_STAGE &&
                   s.status !== UNIFIED_BUDGET_STAGE &&
-                  s.status !== OPTIMIZATION_STAGE && (
+                  s.status !== OPTIMIZATION_STAGE &&
+                  s.status !== EXECUTION_STAGE && (
                   <button
                     type="button"
                     disabled={busyStage === s.status}

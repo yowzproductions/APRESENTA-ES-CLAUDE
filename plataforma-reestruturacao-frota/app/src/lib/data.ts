@@ -49,6 +49,20 @@ export async function getCases(): Promise<ReturnCase[]> {
     }
   }
 
+  // Impacto líquido dos imprevistos da execução (colocado - tirado), que
+  // conta na conta final do veículo ao lado da economia.
+  const incidentsNetByCase = new Map<string, number>();
+  if (ids.length > 0) {
+    const { data: incidentRows } = await supabase
+      .from("execution_incidents")
+      .select("case_id, kind, cost")
+      .in("case_id", ids);
+    for (const it of incidentRows ?? []) {
+      const delta = it.kind === "adicionado" ? it.cost : -it.cost;
+      incidentsNetByCase.set(it.case_id, (incidentsNetByCase.get(it.case_id) ?? 0) + delta);
+    }
+  }
+
   return data.map((row: any) => ({
     id: row.id,
     vehiclePlate: row.vehicles?.plate ?? "—",
@@ -66,6 +80,7 @@ export async function getCases(): Promise<ReturnCase[]> {
     moderationSavings: row.budget_optimizations?.[0]?.id
       ? moderationSavingsByOptimization.get(row.budget_optimizations[0].id) ?? 0
       : null,
+    incidentsNet: incidentsNetByCase.get(row.id) ?? null,
   }));
 }
 
