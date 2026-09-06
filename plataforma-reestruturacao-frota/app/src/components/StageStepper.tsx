@@ -164,6 +164,7 @@ export function StageStepper({
       case_id: caseId,
       actor_id: user?.id,
       actor_email: user?.email,
+      stage,
       action: state === "nao_se_aplica" ? "etapa_nao_se_aplica" : "etapa_concluida",
       description:
         state === "nao_se_aplica"
