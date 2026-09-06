@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -13,6 +13,18 @@ export default function Login() {
     "idle"
   );
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (params.get("error") === "recovery_link_invalid") {
+      setStatus("error");
+      setMessage(
+        "Esse link de recuperação não é mais válido — geralmente acontece quando ele é aberto num " +
+          "navegador ou dispositivo diferente do que pediu a recuperação, ou quando o link expirou. " +
+          "Peça um novo abaixo e abra-o no mesmo navegador."
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
