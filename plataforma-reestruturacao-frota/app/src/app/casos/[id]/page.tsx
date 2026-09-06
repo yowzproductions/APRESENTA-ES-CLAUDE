@@ -27,15 +27,13 @@ export default async function CaseDetail({ params }: { params: { id: string } })
     (attachmentsByStage[a.stage] ??= []).push(a);
   }
 
+  // Economia = orçamento base x valores otimizados (final da precificação).
   const savings =
     c.baseTotal != null && c.finalTotal != null ? c.baseTotal - c.finalTotal : null;
-  // Economia da moderação (itens desconsiderados) separada da economia obtida
-  // depois, na precificação (troca de marca/oficina), sobre o que sobrou aprovado.
-  const moderationSavings = c.moderationSavings;
-  const afterModerationTotal =
-    c.baseTotal != null && moderationSavings != null ? c.baseTotal - moderationSavings : null;
-  const pricingSavings =
-    afterModerationTotal != null && c.finalTotal != null ? afterModerationTotal - c.finalTotal : null;
+  // Orçamento moderado: o que sobrou depois de a moderação desconsiderar itens,
+  // antes da precificação (troca de marca/oficina) reduzir ainda mais o valor.
+  const moderatedTotal =
+    c.baseTotal != null && c.moderationSavings != null ? c.baseTotal - c.moderationSavings : null;
 
   return (
     <div>
@@ -70,28 +68,22 @@ export default async function CaseDetail({ params }: { params: { id: string } })
 
         <section className="rounded-lg border bg-white p-4">
           <h2 className="mb-2 font-medium">Otimização de orçamento — impacto</h2>
-          <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="grid grid-cols-4 gap-2 text-center">
             <div>
-              <p className="text-xs text-ekotruck-gray">Base</p>
+              <p className="text-xs text-ekotruck-gray">Orçamento base</p>
               <p className="text-sm font-semibold">{currency(c.baseTotal)}</p>
             </div>
             <div>
-              <p className="text-xs text-ekotruck-gray">Final</p>
+              <p className="text-xs text-ekotruck-gray">Orçamento moderado</p>
+              <p className="text-sm font-semibold">{currency(moderatedTotal)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-ekotruck-gray">Valores otimizados</p>
               <p className="text-sm font-semibold">{currency(c.finalTotal)}</p>
             </div>
             <div>
-              <p className="text-xs text-ekotruck-gray">Economia total</p>
+              <p className="text-xs text-ekotruck-gray">Economia</p>
               <p className="text-sm font-semibold text-emerald-600">{currency(savings)}</p>
-            </div>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-center">
-            <div>
-              <p className="text-xs text-ekotruck-gray">Economia da moderação</p>
-              <p className="text-sm font-semibold text-emerald-600">{currency(moderationSavings)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-ekotruck-gray">Economia da precificação</p>
-              <p className="text-sm font-semibold text-emerald-600">{currency(pricingSavings)}</p>
             </div>
           </div>
         </section>
