@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { InviteForm } from "./InviteForm";
+import { DeleteUserButton } from "./DeleteUserButton";
 
 const ROLE_LABELS: Record<string, string> = {
   comercial: "Comercial",
@@ -59,6 +60,7 @@ export default async function AdminUsuarios() {
               <th className="px-4 py-2">Papel</th>
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Convidado em</th>
+              <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
@@ -72,11 +74,14 @@ export default async function AdminUsuarios() {
                 <td className="px-4 py-2 text-ekotruck-gray">
                   {p.invited_at ? new Date(p.invited_at).toLocaleDateString("pt-BR") : "—"}
                 </td>
+                <td className="px-4 py-2">
+                  {p.id !== user.id && <DeleteUserButton userId={p.id} fullName={p.full_name} />}
+                </td>
               </tr>
             ))}
             {(!profiles || profiles.length === 0) && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-ekotruck-gray">
+                <td colSpan={5} className="px-4 py-6 text-center text-ekotruck-gray">
                   Nenhum usuário ainda.
                 </td>
               </tr>
