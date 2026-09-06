@@ -11,7 +11,7 @@ export async function getCases(): Promise<ReturnCase[]> {
        clients ( name ),
        branches ( name ),
        unified_budgets ( base_total ),
-       budget_optimizations ( final_total )`
+       budget_optimizations ( id, final_total )`
     )
     .order("created_at", { ascending: false });
 
@@ -29,6 +29,26 @@ export async function getCases(): Promise<ReturnCase[]> {
     if (p.due_at) dueByCase.set(`${p.case_id}:${p.stage}`, p.due_at);
   }
 
+  // Economia obtida na moderação (itens desconsiderados) — separada da
+  // economia obtida depois na precificação (troca de marca/oficina).
+  const optimizationIds = data
+    .map((row: any) => row.budget_optimizations?.[0]?.id)
+    .filter((id: string | undefined): id is string => !!id);
+  const moderationSavingsByOptimization = new Map<string, number>();
+  if (optimizationIds.length > 0) {
+    const { data: rejectedItems } = await supabase
+      .from("optimization_items")
+      .select("optimization_id, cost")
+      .in("optimization_id", optimizationIds)
+      .eq("approved", false);
+    for (const it of rejectedItems ?? []) {
+      moderationSavingsByOptimization.set(
+        it.optimization_id,
+        (moderationSavingsByOptimization.get(it.optimization_id) ?? 0) + it.cost
+      );
+    }
+  }
+
   return data.map((row: any) => ({
     id: row.id,
     vehiclePlate: row.vehicles?.plate ?? "—",
@@ -43,6 +63,9 @@ export async function getCases(): Promise<ReturnCase[]> {
     dueAt: dueByCase.get(`${row.id}:${row.status}`) ?? null,
     baseTotal: row.unified_budgets?.[0]?.base_total ?? null,
     finalTotal: row.budget_optimizations?.[0]?.final_total ?? null,
+    moderationSavings: row.budget_optimizations?.[0]?.id
+      ? moderationSavingsByOptimization.get(row.budget_optimizations[0].id) ?? 0
+      : null,
   }));
 }
 

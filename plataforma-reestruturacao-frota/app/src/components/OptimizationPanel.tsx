@@ -1,7 +1,13 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { createClient } from "@/lib/supabase/client";
+
+function finalY(doc: jsPDF): number {
+  return (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+}
 
 function currency(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -408,6 +414,60 @@ export function OptimizationPanel({
     phase === 2 ? sourceEntries.reduce((s, { item }) => s + originalCostOf(item), 0) : 0;
   const totalSavings = phase === 2 ? totalOriginal - total : 0;
 
+  function downloadPricingPdf() {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("Otimização — Precificação", 14, 16);
+    doc.setFontSize(9);
+    doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 22);
+
+    let y = 28;
+    for (const g of groups) {
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setFontSize(11);
+      doc.text(
+        g.taskNumber != null ? `Tarefa ${g.taskNumber}${g.taskName ? ` — ${g.taskName}` : ""}` : g.taskName || "Sem tarefa",
+        14,
+        y
+      );
+      y += 4;
+      autoTable(doc, {
+        startY: y,
+        head: [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total", "Preço Original", "Economia", "Otimização"]],
+        body: g.entries.map(({ item: it }) => {
+          const orig = originalCostOf(it);
+          return [
+            it.product_line || "",
+            it.part_number || "",
+            it.description,
+            String(it.quantity ?? ""),
+            currency(it.cost),
+            currency(orig),
+            currency(orig - it.cost),
+            it.outsourced
+              ? `Terceirizado (${it.outsourced_to || "-"})`
+              : brandLabel(it.brand) + (it.brand === "ekotruck_spot" && it.supplier ? ` — ${it.supplier}` : ""),
+          ];
+        }),
+        styles: { fontSize: 7 },
+        headStyles: { fillColor: [1, 45, 43] },
+        margin: { left: 14, right: 14 },
+      });
+      y = finalY(doc) + 8;
+    }
+
+    doc.setFontSize(12);
+    doc.text(`Total original: ${currency(totalOriginal)}`, 14, y);
+    y += 6;
+    doc.text(`Total otimizado: ${currency(total)}`, 14, y);
+    y += 6;
+    doc.text(`Economia: ${currency(totalSavings)}`, 14, y);
+    doc.save(`otimizacao-precificacao-${caseId}.pdf`);
+  }
+
   function describeFieldChanges(before: OptItem, after: OptItem): string[] {
     const changes: string[] = [];
     if (before.description !== after.description) {
@@ -779,10 +839,19 @@ export function OptimizationPanel({
       )}
 
       {phase === 2 && (
-        <p className="text-sm text-ekotruck-gray">
-          Fase 2 — Precificação: busque marcas alternativas de peças (Ekotruck / Ekotruck Spot) ou terceirize
-          serviços de mão de obra (linhas 90/92) para otimizar o preço dos itens aprovados na moderação.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-ekotruck-gray">
+            Fase 2 — Precificação: busque marcas alternativas de peças (Ekotruck / Ekotruck Spot) ou terceirize
+            serviços de mão de obra (linhas 90/92) para otimizar o preço dos itens aprovados na moderação.
+          </p>
+          <button
+            type="button"
+            onClick={downloadPricingPdf}
+            className="rounded-md border px-3 py-1.5 text-xs hover:bg-ekotruck-darkGreen/5"
+          >
+            📄 Baixar PDF da precificação
+          </button>
+        </div>
       )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -1027,7 +1096,9 @@ export function OptimizationPanel({
                                   disabled={saving || disabled}
                                   onChange={(e) => {
                                     const brand = e.target.value as PartBrand;
-                                    updateItem(idx, brand === "scania" ? { brand, supplier: "" } : { brand });
+                                    if (brand === "scania") updateItem(idx, { brand, supplier: "" });
+                                    else if (brand === "ekotruck") updateItem(idx, { brand, supplier: "Ekotruck" });
+                                    else updateItem(idx, { brand, supplier: it.brand === "ekotruck" ? "" : it.supplier });
                                   }}
                                   className="w-36 rounded border px-1 py-0.5"
                                 >
@@ -1035,7 +1106,7 @@ export function OptimizationPanel({
                                   <option value="ekotruck">Ekotruck</option>
                                   <option value="ekotruck_spot">Ekotruck Spot</option>
                                 </select>
-                                {it.brand !== "scania" && (
+                                {it.brand === "ekotruck_spot" && (
                                   <input
                                     type="text"
                                     placeholder="origem / fornecedor"
