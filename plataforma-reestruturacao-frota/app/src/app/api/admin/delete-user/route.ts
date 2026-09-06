@@ -50,7 +50,29 @@ export async function POST(request: Request) {
 
   const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    // Contas que criaram um caso existente (return_cases.created_by) não
+    // podem ser excluídas sem quebrar esse histórico — desativamos o
+    // acesso em vez de excluir, para a pessoa não conseguir mais entrar.
+    const { error: banErr } = await admin.auth.admin.updateUserById(userId, { ban_duration: "87600h" });
+    if (banErr) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    await admin.from("profiles").update({ status: "desativado" }).eq("id", userId);
+
+    await supabase.from("activity_log").insert({
+      actor_id: user.id,
+      actor_email: user.email,
+      action: "desativou_acesso",
+      description: `Não foi possível excluir o acesso de ${
+        targetProfile?.full_name || userId
+      } (tem casos ou registros vinculados) — desativou o acesso.`,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      deactivatedInstead: true,
+      message: "Essa conta criou casos existentes e não pode ser excluída sem perder esse histórico — o acesso foi desativado em vez disso.",
+    });
   }
 
   await supabase.from("activity_log").insert({
