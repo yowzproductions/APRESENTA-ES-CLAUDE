@@ -1,0 +1,270 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { CaseStatus } from "@/types/domain";
+
+function currency(v: number) {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function taskKey(taskNumber: number | null, taskName: string) {
+  return `${taskNumber ?? "none"}|${taskName || ""}`;
+}
+
+function groupByTask<T extends { task_number: number | null; task_name: string }>(items: T[]) {
+  const map = new Map<string, { taskNumber: number | null; taskName: string; entries: T[] }>();
+  const order: string[] = [];
+  for (const it of items) {
+    const key = taskKey(it.task_number, it.task_name);
+    if (!map.has(key)) {
+      map.set(key, { taskNumber: it.task_number, taskName: it.task_name, entries: [] });
+      order.push(key);
+    }
+    map.get(key)!.entries.push(it);
+  }
+  const groups = order.map((k) => map.get(k)!);
+  groups.sort((a, b) => {
+    if (a.taskNumber == null && b.taskNumber == null) return 0;
+    if (a.taskNumber == null) return 1;
+    if (b.taskNumber == null) return -1;
+    return a.taskNumber - b.taskNumber;
+  });
+  return groups;
+}
+
+interface MechItem {
+  description: string;
+  product_line: string | null;
+  part_number: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  estimated_cost: number;
+  task_number: number | null;
+  task_name: string | null;
+}
+
+function MechanicalSummary({ caseId }: { caseId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<MechItem[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const supabase = createClient();
+      const { data: inspections } = await supabase.from("mechanical_inspections").select("id").eq("case_id", caseId);
+      const ids = (inspections ?? []).map((i) => i.id);
+      if (ids.length === 0) {
+        setLoading(false);
+        return;
+      }
+      const { data } = await supabase.from("mechanical_items").select("*").in("inspection_id", ids);
+      setItems((data as MechItem[]) ?? []);
+      setLoading(false);
+    })();
+  }, [caseId]);
+
+  if (loading) return <p className="text-xs text-ekotruck-gray">Carregando...</p>;
+  if (items.length === 0) return <p className="text-xs text-ekotruck-gray">Nenhum item registrado.</p>;
+
+  const groups = groupByTask(items.map((it) => ({ ...it, task_name: it.task_name || "" })));
+  const total = items.reduce((s, it) => s + it.estimated_cost, 0);
+
+  return (
+    <div className="space-y-2">
+      {groups.map((g) => (
+        <div key={taskKey(g.taskNumber, g.taskName)} className="overflow-x-auto rounded-md border">
+          <div className="bg-ekotruck-darkGreen/5 px-2 py-1 text-xs font-semibold text-ekotruck-darkGreen">
+            {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : "Sem tarefa"}
+            {g.taskName ? ` — ${g.taskName}` : ""}
+          </div>
+          <table className="w-full text-xs">
+            <tbody>
+              {g.entries.map((it, i) => (
+                <tr key={i} className="border-t">
+                  <td className="px-2 py-1">{it.product_line}</td>
+                  <td className="px-2 py-1">{it.part_number}</td>
+                  <td className="px-2 py-1">{it.description}</td>
+                  <td className="px-2 py-1">{it.quantity}</td>
+                  <td className="px-2 py-1">{currency(it.estimated_cost)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      <div className="text-right text-xs font-semibold">Total: {currency(total)}</div>
+    </div>
+  );
+}
+
+interface ChecklistPoint {
+  id: string;
+  point_number: number | null;
+  description: string;
+  status: string;
+  damage_type: string | null;
+  justification: string | null;
+}
+
+interface ChecklistPart {
+  checklist_item_id: string;
+  description: string;
+  part_number: string | null;
+  product_line: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  total_price: number;
+}
+
+function InspectionSummary({ caseId }: { caseId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [points, setPoints] = useState<ChecklistPoint[]>([]);
+  const [parts, setParts] = useState<ChecklistPart[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const supabase = createClient();
+      const { data: checklists } = await supabase.from("inspection_checklists").select("id").eq("case_id", caseId);
+      const ids = (checklists ?? []).map((c) => c.id);
+      if (ids.length === 0) {
+        setLoading(false);
+        return;
+      }
+      const { data: pts } = await supabase
+        .from("checklist_items")
+        .select("id, point_number, description, status, damage_type, justification")
+        .in("checklist_id", ids)
+        .order("point_number", { ascending: true });
+      const pointsData = (pts as ChecklistPoint[]) ?? [];
+      setPoints(pointsData);
+
+      const avariadoIds = pointsData.filter((p) => p.status === "avariado").map((p) => p.id);
+      if (avariadoIds.length > 0) {
+        const { data: pp } = await supabase.from("checklist_item_parts").select("*").in("checklist_item_id", avariadoIds);
+        setParts((pp as ChecklistPart[]) ?? []);
+      }
+      setLoading(false);
+    })();
+  }, [caseId]);
+
+  if (loading) return <p className="text-xs text-ekotruck-gray">Carregando...</p>;
+  if (points.length === 0) return <p className="text-xs text-ekotruck-gray">Nenhum ponto registrado.</p>;
+
+  const avariados = points.filter((p) => p.status === "avariado");
+
+  return (
+    <div className="space-y-2 text-xs">
+      <p className="text-ekotruck-gray">
+        {points.length} pontos vistoriados — {avariados.length} avariado(s)
+      </p>
+      {avariados.map((p) => {
+        const itsParts = parts.filter((part) => part.checklist_item_id === p.id);
+        const subtotal = itsParts.reduce((s, it) => s + it.total_price, 0);
+        return (
+          <div key={p.id} className="rounded-md border bg-red-50/50 p-2">
+            <div className="font-medium text-red-800">
+              {p.point_number != null ? `${p.point_number}. ` : ""}
+              {p.description}
+              {p.damage_type ? ` — ${p.damage_type}` : ""}
+            </div>
+            {p.justification && <div className="mt-0.5 text-ekotruck-gray">{p.justification}</div>}
+            {itsParts.length > 0 && (
+              <table className="mt-1 w-full">
+                <tbody>
+                  {itsParts.map((it, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="px-1 py-0.5">{it.part_number}</td>
+                      <td className="px-1 py-0.5">{it.description}</td>
+                      <td className="px-1 py-0.5">{it.quantity}</td>
+                      <td className="px-1 py-0.5">{currency(it.total_price)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {itsParts.length > 0 && (
+              <div className="mt-0.5 text-right font-medium">Subtotal: {currency(subtotal)}</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+interface UnifiedItem {
+  description: string;
+  product_line: string | null;
+  part_number: string | null;
+  quantity: number | null;
+  cost: number;
+  source_label: string | null;
+  included: boolean;
+  task_number: number | null;
+  task_name: string | null;
+}
+
+function UnifiedBudgetSummary({ caseId }: { caseId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<UnifiedItem[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const supabase = createClient();
+      const { data: budget } = await supabase
+        .from("unified_budgets")
+        .select("id")
+        .eq("case_id", caseId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!budget) {
+        setLoading(false);
+        return;
+      }
+      const { data } = await supabase.from("unified_budget_items").select("*").eq("unified_budget_id", budget.id);
+      setItems((data as UnifiedItem[]) ?? []);
+      setLoading(false);
+    })();
+  }, [caseId]);
+
+  if (loading) return <p className="text-xs text-ekotruck-gray">Carregando...</p>;
+  if (items.length === 0) return <p className="text-xs text-ekotruck-gray">Nenhum item registrado.</p>;
+
+  const groups = groupByTask(items.map((it) => ({ ...it, task_name: it.task_name || "" })));
+  const total = items.filter((it) => it.included).reduce((s, it) => s + it.cost, 0);
+
+  return (
+    <div className="space-y-2 text-xs">
+      {groups.map((g) => (
+        <div key={taskKey(g.taskNumber, g.taskName)} className="overflow-x-auto rounded-md border">
+          <div className="bg-ekotruck-darkGreen/5 px-2 py-1 font-semibold text-ekotruck-darkGreen">
+            {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : g.taskName || "Sem tarefa"}
+            {g.taskNumber != null && g.taskName ? ` — ${g.taskName}` : ""}
+          </div>
+          <table className="w-full">
+            <tbody>
+              {g.entries.map((it, i) => (
+                <tr key={i} className={`border-t ${!it.included ? "opacity-50 line-through" : ""}`}>
+                  <td className="px-2 py-1">{it.source_label}</td>
+                  <td className="px-2 py-1">{it.part_number}</td>
+                  <td className="px-2 py-1">{it.description}</td>
+                  <td className="px-2 py-1">{it.quantity}</td>
+                  <td className="px-2 py-1">{currency(it.cost)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      <div className="text-right font-semibold">Total do orçamento final: {currency(total)}</div>
+    </div>
+  );
+}
+
+export function StageDetails({ caseId, stage }: { caseId: string; stage: CaseStatus }) {
+  if (stage === "inspecao_mecanica_em_andamento") return <MechanicalSummary caseId={caseId} />;
+  if (stage === "vistoria_em_andamento") return <InspectionSummary caseId={caseId} />;
+  if (stage === "orcamento_unificado") return <UnifiedBudgetSummary caseId={caseId} />;
+  return null;
+}

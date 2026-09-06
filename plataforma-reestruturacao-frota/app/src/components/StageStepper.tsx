@@ -9,6 +9,7 @@ import { sanitizeFileName } from "@/lib/sanitizeFileName";
 import { MechanicalInspectionPanel } from "./MechanicalInspectionPanel";
 import { InspectionChecklistPanel } from "./InspectionChecklistPanel";
 import { UnifiedBudgetPanel } from "./UnifiedBudgetPanel";
+import { StageDetails } from "./StageDetails";
 
 const MECHANICAL_STAGE: CaseStatus = "inspecao_mecanica_em_andamento";
 const INSPECTION_STAGE: CaseStatus = "vistoria_em_andamento";
@@ -51,6 +52,11 @@ export function StageStepper({
   const [busyStage, setBusyStage] = useState<string | null>(null);
   const [dueDrafts, setDueDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [expandedStages, setExpandedStages] = useState<Record<string, boolean>>({});
+
+  function toggleExpanded(stage: string) {
+    setExpandedStages((prev) => ({ ...prev, [stage]: !prev[stage] }));
+  }
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Etapa 0 (cadastro) é implicitamente concluída pela própria existência do
@@ -201,13 +207,22 @@ export function StageStepper({
         const stageFiles = attachments[s.status] ?? [];
 
         if (state === "concluido" || state === "nao_se_aplica") {
+          const hasDetails =
+            s.status === MECHANICAL_STAGE || s.status === INSPECTION_STAGE || s.status === UNIFIED_BUDGET_STAGE;
+          const isExpanded = !!expandedStages[s.status];
           return (
             <div
               key={s.status}
               className="rounded-lg border border-ekotruck-darkGreen/10 bg-white px-4 py-3"
             >
-              <div className="flex items-center justify-between">
+              <div
+                className={`flex items-center justify-between ${hasDetails ? "cursor-pointer" : ""}`}
+                onClick={hasDetails ? () => toggleExpanded(s.status) : undefined}
+              >
                 <div>
+                  {hasDetails && (
+                    <span className="mr-1 inline-block text-ekotruck-gray">{isExpanded ? "▾" : "▸"}</span>
+                  )}
                   <span className="font-medium">{s.label}</span>
                   {p?.dueAt && (
                     <span className="ml-2 text-xs text-ekotruck-gray">
@@ -233,6 +248,11 @@ export function StageStepper({
                       📎 anexo ({new Date(f.uploadedAt).toLocaleDateString("pt-BR")})
                     </button>
                   ))}
+                </div>
+              )}
+              {hasDetails && isExpanded && (
+                <div className="mt-3 border-t border-ekotruck-darkGreen/10 pt-3">
+                  <StageDetails caseId={caseId} stage={s.status} />
                 </div>
               )}
             </div>
