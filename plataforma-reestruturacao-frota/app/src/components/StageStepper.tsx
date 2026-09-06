@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CaseStatus, STAGE_ORDER } from "@/types/domain";
 import { StageAttachment, StageProgress, StageState } from "@/lib/data";
+import { sanitizeFileName } from "@/lib/sanitizeFileName";
 import { MechanicalInspectionPanel } from "./MechanicalInspectionPanel";
 import { InspectionChecklistPanel } from "./InspectionChecklistPanel";
 
@@ -100,7 +101,7 @@ export function StageStepper({
     } = await supabase.auth.getUser();
 
     if (file) {
-      const path = `${caseId}/${stage}/${Date.now()}-${file.name}`;
+      const path = `${caseId}/${stage}/${Date.now()}-${sanitizeFileName(file.name)}`;
       const { error: upErr } = await supabase.storage
         .from("case-attachments")
         .upload(path, file);

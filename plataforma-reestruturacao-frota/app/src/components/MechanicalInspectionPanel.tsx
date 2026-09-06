@@ -3,6 +3,7 @@
 import { Fragment, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ParsedBudgetItem } from "@/lib/parseBudgetPdf";
+import { sanitizeFileName } from "@/lib/sanitizeFileName";
 
 function currency(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -76,7 +77,7 @@ export function MechanicalInspectionPanel({
       // da função serverless, que tem limite de ~4,5 MB na Vercel e causava
       // HTTP 413 em arquivos maiores). A rota de leitura recebe só o caminho.
       const supabase = createClient();
-      const path = `${caseId}/${stage}/${Date.now()}-${file.name}`;
+      const path = `${caseId}/${stage}/${Date.now()}-${sanitizeFileName(file.name)}`;
       const { error: upErr } = await supabase.storage.from("case-attachments").upload(path, file);
       if (upErr) {
         setError(upErr.message);

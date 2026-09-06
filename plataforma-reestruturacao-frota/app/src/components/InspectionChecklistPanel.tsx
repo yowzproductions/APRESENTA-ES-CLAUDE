@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ParsedInspectionPoint } from "@/lib/parseInspectionPdf";
+import { sanitizeFileName } from "@/lib/sanitizeFileName";
 
 function currency(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -69,7 +70,7 @@ export function InspectionChecklistPanel({
       // HTTP 413 em arquivos maiores, como o relatório fotográfico de
       // vistoria). A rota de leitura recebe só o caminho.
       const supabase = createClient();
-      const path = `${caseId}/${stage}/${Date.now()}-${file.name}`;
+      const path = `${caseId}/${stage}/${Date.now()}-${sanitizeFileName(file.name)}`;
       const { error: upErr } = await supabase.storage.from("case-attachments").upload(path, file);
       if (upErr) {
         setError(upErr.message);
