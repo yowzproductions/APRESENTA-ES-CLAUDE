@@ -18,7 +18,7 @@ const COLORS: Record<CaseStatus, string> = {
   cancelado: "bg-red-100 text-red-700",
 };
 
-const LABELS: Record<CaseStatus, string> = {
+export const LABELS: Record<CaseStatus, string> = {
   cadastrado: "Cadastrado",
   agendado: "Agendado",
   vistoria_em_andamento: "Vistoria em andamento",
