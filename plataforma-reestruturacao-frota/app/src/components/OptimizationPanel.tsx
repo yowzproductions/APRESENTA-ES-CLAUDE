@@ -21,6 +21,20 @@ function taskKey(taskNumber: number | null, taskName: string) {
 const NONE_TASK = "__none__";
 const NEW_TASK = "__new__";
 
+type PartBrand = "scania" | "ekotruck" | "ekotruck_spot";
+
+function brandLabel(b: PartBrand) {
+  if (b === "ekotruck") return "Ekotruck";
+  if (b === "ekotruck_spot") return "Ekotruck Spot";
+  return "Scania Original";
+}
+
+// Itens de mão de obra (linhas 90/92) podem ser terceirizados para outra
+// oficina; os demais (peças) podem trocar de marca.
+function isLaborLine(productLine: string) {
+  return productLine === "90" || productLine === "92";
+}
+
 interface OptItem {
   id: string;
   isNew?: boolean;
@@ -35,6 +49,11 @@ interface OptItem {
   justification: string;
   task_number: number | null;
   task_name: string;
+  source_unified_budget_item_id: string | null;
+  brand: PartBrand;
+  supplier: string;
+  outsourced: boolean;
+  outsourced_to: string;
 }
 
 function blankOptItem(): OptItem {
@@ -52,6 +71,11 @@ function blankOptItem(): OptItem {
     justification: "",
     task_number: null,
     task_name: "",
+    source_unified_budget_item_id: null,
+    brand: "scania",
+    supplier: "",
+    outsourced: false,
+    outsourced_to: "",
   };
 }
 
@@ -69,11 +93,14 @@ export function OptimizationPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [optimizationId, setOptimizationId] = useState<string | null>(null);
+  const [moderationCompletedAt, setModerationCompletedAt] = useState<string | null>(null);
   const [items, setItems] = useState<OptItem[] | null>(null);
   const [removedItems, setRemovedItems] = useState<{ id: string; description: string }[]>([]);
   // Retrato dos itens tal como vieram do banco, para detectar o que o
-  // especialista realmente editou até a confirmação (e registrar no histórico).
+  // especialista/operador realmente editou até a confirmação (e registrar no histórico).
   const [originalItems, setOriginalItems] = useState<Record<string, OptItem>>({});
+  // Preço original (do orçamento unificado) de cada item, para calcular a economia na precificação.
+  const [originalCosts, setOriginalCosts] = useState<Record<string, number>>({});
 
   const [taskDefs, setTaskDefs] = useState<{ taskNumber: number | null; taskName: string }[]>([]);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -84,13 +111,15 @@ export function OptimizationPanel({
   const [addTaskNewNumber, setAddTaskNewNumber] = useState("");
   const [addTaskNewName, setAddTaskNewName] = useState("");
 
+  const phase: 1 | 2 = moderationCompletedAt ? 2 : 1;
+
   async function loadOptimization() {
     setLoading(true);
     setError(null);
     const supabase = createClient();
     const { data: optimization } = await supabase
       .from("budget_optimizations")
-      .select("id")
+      .select("id, moderation_completed_at")
       .eq("case_id", caseId)
       .order("started_at", { ascending: false })
       .limit(1)
@@ -98,12 +127,14 @@ export function OptimizationPanel({
 
     if (!optimization) {
       setOptimizationId(null);
+      setModerationCompletedAt(null);
       setItems(null);
       setLoading(false);
       return;
     }
 
     setOptimizationId(optimization.id);
+    setModerationCompletedAt(optimization.moderation_completed_at);
     const { data: optItems } = await supabase
       .from("optimization_items")
       .select("*")
@@ -122,10 +153,29 @@ export function OptimizationPanel({
       justification: it.justification || "",
       task_number: it.task_number,
       task_name: it.task_name || "",
+      source_unified_budget_item_id: it.source_unified_budget_item_id || null,
+      brand: (it.brand as PartBrand) || "scania",
+      supplier: it.supplier || "",
+      outsourced: it.outsourced ?? false,
+      outsourced_to: it.outsourced_to || "",
     }));
     setItems(loaded);
     setOriginalItems(Object.fromEntries(loaded.map((it) => [it.id, it])));
     setRemovedItems([]);
+
+    const sourceIds = Array.from(
+      new Set(loaded.map((it) => it.source_unified_budget_item_id).filter((id): id is string => !!id))
+    );
+    if (sourceIds.length > 0) {
+      const { data: sourceItems } = await supabase
+        .from("unified_budget_items")
+        .select("id, cost")
+        .in("id", sourceIds);
+      setOriginalCosts(Object.fromEntries((sourceItems ?? []).map((s: any) => [s.id, s.cost])));
+    } else {
+      setOriginalCosts({});
+    }
+
     setLoading(false);
   }
 
@@ -291,6 +341,14 @@ export function OptimizationPanel({
     setItems((prev) => [...(prev ?? []), { ...blank, task_number: task.taskNumber, task_name: task.taskName }]);
   }
 
+  // Na fase 1 (moderação) trabalhamos a lista inteira; na fase 2 (precificação)
+  // só os itens aprovados na moderação entram em pauta.
+  const sourceEntries: { item: OptItem; index: number }[] = items
+    ? items
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => (phase === 2 ? item.approved : true))
+    : [];
+
   const groups: {
     key: string;
     reactKey: string;
@@ -298,9 +356,9 @@ export function OptimizationPanel({
     taskName: string;
     entries: { item: OptItem; index: number }[];
   }[] = [];
-  if (items) {
+  {
     const map = new Map<string, (typeof groups)[number]>();
-    items.forEach((item, index) => {
+    sourceEntries.forEach(({ item, index }) => {
       const key = taskKey(item.task_number, item.task_name);
       let g = map.get(key);
       if (!g) {
@@ -341,6 +399,15 @@ export function OptimizationPanel({
 
   const total = items?.filter((it) => it.approved).reduce((s, it) => s + it.cost, 0) ?? 0;
 
+  function originalCostOf(it: OptItem) {
+    if (!it.source_unified_budget_item_id) return it.cost;
+    return originalCosts[it.source_unified_budget_item_id] ?? it.cost;
+  }
+
+  const totalOriginal =
+    phase === 2 ? sourceEntries.reduce((s, { item }) => s + originalCostOf(item), 0) : 0;
+  const totalSavings = phase === 2 ? totalOriginal - total : 0;
+
   function describeFieldChanges(before: OptItem, after: OptItem): string[] {
     const changes: string[] = [];
     if (before.description !== after.description) {
@@ -361,10 +428,26 @@ export function OptimizationPanel({
     if (taskKey(before.task_number, before.task_name) !== taskKey(after.task_number, after.task_name)) {
       changes.push("tarefa alterada");
     }
+    if (before.brand !== after.brand) {
+      changes.push(`marca de "${brandLabel(before.brand)}" para "${brandLabel(after.brand)}"`);
+    }
+    if (before.supplier !== after.supplier) {
+      changes.push(`fornecedor de "${before.supplier || "-"}" para "${after.supplier || "-"}"`);
+    }
+    if (before.outsourced !== after.outsourced) {
+      changes.push(
+        after.outsourced
+          ? `terceirizado para a oficina "${after.outsourced_to || "-"}"`
+          : "deixou de ser terceirizado"
+      );
+    }
+    if (before.outsourced && after.outsourced && before.outsourced_to !== after.outsourced_to) {
+      changes.push(`oficina terceirizada de "${before.outsourced_to || "-"}" para "${after.outsourced_to || "-"}"`);
+    }
     return changes;
   }
 
-  async function confirmAndComplete() {
+  async function confirmModeration() {
     if (!items || !optimizationId) return;
     setSaving(true);
     setError(null);
@@ -484,7 +567,7 @@ export function OptimizationPanel({
 
     await supabase
       .from("budget_optimizations")
-      .update({ final_total: total, completed_at: new Date().toISOString() })
+      .update({ moderation_completed_at: new Date().toISOString() })
       .eq("id", optimizationId);
 
     await supabase.from("activity_log").insert([
@@ -496,7 +579,77 @@ export function OptimizationPanel({
         action: "moderacao_concluida",
         description: `Concluiu a moderação com ${items.filter((it) => it.approved).length} de ${
           items.length
-        } item(ns) aprovado(s), total ${currency(total)}.`,
+        } item(ns) aprovado(s) para a precificação.`,
+      },
+      ...itemLogs,
+    ]);
+
+    setSaving(false);
+    await loadOptimization();
+  }
+
+  async function confirmPricing() {
+    if (!items || !optimizationId) return;
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const itemLogs: Record<string, unknown>[] = [];
+
+    for (const it of items) {
+      if (!it.approved || it.isNew) continue;
+      const { error: updErr } = await supabase
+        .from("optimization_items")
+        .update({
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          cost: it.cost,
+          brand: it.brand,
+          supplier: it.supplier || null,
+          outsourced: it.outsourced,
+          outsourced_to: it.outsourced_to || null,
+        })
+        .eq("id", it.id);
+      if (updErr) {
+        setError(updErr.message);
+        setSaving(false);
+        return;
+      }
+
+      const before = originalItems[it.id];
+      if (before) {
+        const changes = describeFieldChanges(before, it);
+        if (changes.length > 0) {
+          itemLogs.push({
+            case_id: caseId,
+            actor_id: user?.id,
+            actor_email: user?.email,
+            stage: "em_otimizacao",
+            action: "item_editado",
+            description: `Editou o item "${it.description}" na precificação: ${changes.join("; ")}.`,
+          });
+        }
+      }
+    }
+
+    await supabase
+      .from("budget_optimizations")
+      .update({ final_total: total, completed_at: new Date().toISOString() })
+      .eq("id", optimizationId);
+
+    await supabase.from("activity_log").insert([
+      {
+        case_id: caseId,
+        actor_id: user?.id,
+        actor_email: user?.email,
+        stage: "em_otimizacao",
+        action: "precificacao_concluida",
+        description: `Concluiu a precificação: total de ${currency(total)} (economia de ${currency(
+          totalSavings
+        )} em relação ao orçamento original).`,
       },
       ...itemLogs,
     ]);
@@ -506,7 +659,7 @@ export function OptimizationPanel({
   }
 
   if (loading) {
-    return <p className="text-sm text-ekotruck-gray">Carregando moderação...</p>;
+    return <p className="text-sm text-ekotruck-gray">Carregando otimização...</p>;
   }
 
   if (!optimizationId) {
@@ -577,52 +730,66 @@ export function OptimizationPanel({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        {!creatingTask && (
-          <button
-            type="button"
-            disabled={saving || disabled}
-            onClick={() => setCreatingTask(true)}
-            className="rounded-md border px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
-          >
-            + Criar tarefa
-          </button>
-        )}
-        {creatingTask && (
-          <div className="flex items-center gap-2 rounded-md border border-dashed px-2 py-1">
-            <input
-              type="number"
-              placeholder="nº"
-              value={newTaskNumber}
-              onChange={(e) => setNewTaskNumber(e.target.value)}
-              className="w-16 rounded border px-1 py-1 text-sm"
-            />
-            <input
-              type="text"
-              placeholder="nome da tarefa"
-              value={newTaskName}
-              onChange={(e) => setNewTaskName(e.target.value)}
-              className="w-40 rounded border px-1 py-1 text-sm"
-            />
-            <button
-              type="button"
-              onClick={saveNewTask}
-              className="rounded-md bg-ekotruck-orange px-3 py-1 text-sm font-medium text-white hover:opacity-90"
-            >
-              Salvar
-            </button>
-            <button type="button" onClick={cancelNewTask} className="text-sm text-ekotruck-gray hover:underline">
-              cancelar
-            </button>
+      {phase === 1 && (
+        <>
+          <p className="text-sm text-ekotruck-gray">
+            Fase 1 — Moderação: avalie cada item e marque o que deve ser desconsiderado do processo.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            {!creatingTask && (
+              <button
+                type="button"
+                disabled={saving || disabled}
+                onClick={() => setCreatingTask(true)}
+                className="rounded-md border px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
+              >
+                + Criar tarefa
+              </button>
+            )}
+            {creatingTask && (
+              <div className="flex items-center gap-2 rounded-md border border-dashed px-2 py-1">
+                <input
+                  type="number"
+                  placeholder="nº"
+                  value={newTaskNumber}
+                  onChange={(e) => setNewTaskNumber(e.target.value)}
+                  className="w-16 rounded border px-1 py-1 text-sm"
+                />
+                <input
+                  type="text"
+                  placeholder="nome da tarefa"
+                  value={newTaskName}
+                  onChange={(e) => setNewTaskName(e.target.value)}
+                  className="w-40 rounded border px-1 py-1 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={saveNewTask}
+                  className="rounded-md bg-ekotruck-orange px-3 py-1 text-sm font-medium text-white hover:opacity-90"
+                >
+                  Salvar
+                </button>
+                <button type="button" onClick={cancelNewTask} className="text-sm text-ekotruck-gray hover:underline">
+                  cancelar
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {phase === 2 && (
+        <p className="text-sm text-ekotruck-gray">
+          Fase 2 — Precificação: busque marcas alternativas de peças (Ekotruck / Ekotruck Spot) ou terceirize
+          serviços de mão de obra (linhas 90/92) para otimizar o preço dos itens aprovados na moderação.
+        </p>
+      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {(!items || items.length === 0) && addItemControls}
+      {phase === 1 && (!items || items.length === 0) && addItemControls}
 
-      {items && items.length > 0 && (
+      {items && sourceEntries.length > 0 && phase === 1 && (
         <div className="overflow-x-auto rounded-md border border-ekotruck-darkGreen/10">
           <table className="w-full text-xs">
             <thead className="bg-ekotruck-darkGreen/5 text-left uppercase text-ekotruck-gray">
@@ -764,14 +931,167 @@ export function OptimizationPanel({
         </div>
       )}
 
-      <button
-        type="button"
-        disabled={!items || items.length === 0 || saving || disabled}
-        onClick={confirmAndComplete}
-        className="rounded-md bg-ekotruck-orange px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-      >
-        {saving ? "Salvando..." : "Confirmar moderação e concluir etapa"}
-      </button>
+      {items && phase === 2 && sourceEntries.length === 0 && (
+        <p className="text-sm text-ekotruck-gray">Nenhum item foi aprovado na moderação.</p>
+      )}
+
+      {items && sourceEntries.length > 0 && phase === 2 && (
+        <div className="overflow-x-auto rounded-md border border-ekotruck-darkGreen/10">
+          <table className="w-full text-xs">
+            <thead className="bg-ekotruck-darkGreen/5 text-left uppercase text-ekotruck-gray">
+              <tr>
+                <th className="px-2 py-1.5">Linha</th>
+                <th className="px-2 py-1.5">Partnumber</th>
+                <th className="px-2 py-1.5">Descrição</th>
+                <th className="px-2 py-1.5">Qtde.</th>
+                <th className="px-2 py-1.5">Preço Unit.</th>
+                <th className="px-2 py-1.5">Preço Total</th>
+                <th className="px-2 py-1.5">Preço Original</th>
+                <th className="px-2 py-1.5">Economia</th>
+                <th className="px-2 py-1.5">Otimização</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => {
+                const subtotal = g.entries.reduce((s, e) => s + e.item.cost, 0);
+                return (
+                  <Fragment key={g.reactKey}>
+                    <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-mint/20">
+                      <td colSpan={9} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
+                        {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : g.taskName || "Sem tarefa"}
+                        {g.taskNumber != null && g.taskName ? ` — ${g.taskName}` : ""}
+                      </td>
+                    </tr>
+                    {g.entries.map(({ item: it, index: idx }) => {
+                      const orig = originalCostOf(it);
+                      const savings = orig - it.cost;
+                      const labor = isLaborLine(it.product_line);
+                      return (
+                        <tr key={it.id} className="border-t border-ekotruck-darkGreen/10">
+                          <td className="px-2 py-1.5 align-top">{it.product_line || "-"}</td>
+                          <td className="px-2 py-1.5 align-top">{it.part_number || "-"}</td>
+                          <td className="px-2 py-1.5 align-top">{it.description}</td>
+                          <td className="px-2 py-1.5 align-top">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={it.quantity}
+                              onChange={(e) => updateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                              className="w-16 rounded border px-1 py-0.5"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={currency(it.unit_price)}
+                              onChange={(e) => updateItem(idx, { unit_price: parseCurrencyInput(e.target.value) })}
+                              className="w-24 rounded border px-1 py-0.5"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 align-top">{currency(it.cost)}</td>
+                          <td className="px-2 py-1.5 align-top text-ekotruck-gray">{currency(orig)}</td>
+                          <td
+                            className={`px-2 py-1.5 align-top font-medium ${
+                              savings > 0 ? "text-emerald-700" : savings < 0 ? "text-red-600" : ""
+                            }`}
+                          >
+                            {currency(savings)}
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
+                            {labor ? (
+                              <div className="space-y-1">
+                                <label className="flex items-center gap-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={it.outsourced}
+                                    disabled={saving || disabled}
+                                    onChange={(e) => updateItem(idx, { outsourced: e.target.checked })}
+                                  />
+                                  Terceirizar
+                                </label>
+                                {it.outsourced && (
+                                  <input
+                                    type="text"
+                                    placeholder="nome da oficina"
+                                    value={it.outsourced_to}
+                                    onChange={(e) => updateItem(idx, { outsourced_to: e.target.value })}
+                                    className="w-36 rounded border px-1 py-0.5"
+                                  />
+                                )}
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <select
+                                  value={it.brand}
+                                  disabled={saving || disabled}
+                                  onChange={(e) => {
+                                    const brand = e.target.value as PartBrand;
+                                    updateItem(idx, brand === "scania" ? { brand, supplier: "" } : { brand });
+                                  }}
+                                  className="w-36 rounded border px-1 py-0.5"
+                                >
+                                  <option value="scania">Scania Original</option>
+                                  <option value="ekotruck">Ekotruck</option>
+                                  <option value="ekotruck_spot">Ekotruck Spot</option>
+                                </select>
+                                {it.brand !== "scania" && (
+                                  <input
+                                    type="text"
+                                    placeholder="origem / fornecedor"
+                                    value={it.supplier}
+                                    onChange={(e) => updateItem(idx, { supplier: e.target.value })}
+                                    className="w-36 rounded border px-1 py-0.5"
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5">
+                      <td colSpan={5}></td>
+                      <td colSpan={4} className="px-2 py-1.5 text-right font-medium">
+                        Subtotal: {currency(subtotal)}
+                      </td>
+                    </tr>
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="flex flex-wrap justify-end gap-4 border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5 px-3 py-2 text-sm font-semibold">
+            <span>Total original: {currency(totalOriginal)}</span>
+            <span>Total otimizado: {currency(total)}</span>
+            <span className={totalSavings >= 0 ? "text-emerald-700" : "text-red-600"}>
+              Economia: {currency(totalSavings)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {phase === 1 && (
+        <button
+          type="button"
+          disabled={!items || items.length === 0 || saving || disabled}
+          onClick={confirmModeration}
+          className="rounded-md bg-ekotruck-orange px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {saving ? "Salvando..." : "Confirmar moderação e avançar para precificação"}
+        </button>
+      )}
+
+      {phase === 2 && (
+        <button
+          type="button"
+          disabled={!items || sourceEntries.length === 0 || saving || disabled}
+          onClick={confirmPricing}
+          className="rounded-md bg-ekotruck-orange px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {saving ? "Salvando..." : "Confirmar precificação e concluir etapa"}
+        </button>
+      )}
     </div>
   );
 }
