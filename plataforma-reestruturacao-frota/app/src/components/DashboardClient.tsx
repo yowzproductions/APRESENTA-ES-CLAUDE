@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { FilterOption, ReturnCase } from "@/types/domain";
 import { KanbanBoard } from "./KanbanBoard";
 import { ListView } from "./ListView";
+import { ReportButton } from "./ReportButton";
 
 export function DashboardClient({
   cases,
@@ -39,12 +40,15 @@ export function DashboardClient({
             {filtered.length} caso(s) — {view === "kanban" ? "visão por etapa" : "lista compacta"}
           </p>
         </div>
-        <a
-          href="/novo"
-          className="rounded-md bg-ekotruck-orange px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-        >
-          + Novo caso
-        </a>
+        <div className="flex items-center gap-2">
+          <ReportButton cases={filtered} />
+          <a
+            href="/novo"
+            className="rounded-md bg-ekotruck-orange px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+          >
+            + Novo caso
+          </a>
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
