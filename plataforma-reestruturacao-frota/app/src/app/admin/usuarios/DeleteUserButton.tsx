@@ -8,6 +8,7 @@ export function DeleteUserButton({ userId, fullName }: { userId: string; fullNam
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   async function handleDelete() {
     setDeleting(true);
@@ -23,7 +24,31 @@ export function DeleteUserButton({ userId, fullName }: { userId: string; fullNam
       setDeleting(false);
       return;
     }
+    if (data.deactivatedInstead) {
+      setDeleting(false);
+      setNotice(data.message);
+      return;
+    }
     router.refresh();
+  }
+
+  if (notice) {
+    return (
+      <div className="text-xs">
+        <p className="mb-1 text-amber-700">{notice}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setNotice(null);
+            setConfirming(false);
+            router.refresh();
+          }}
+          className="rounded border px-2 py-1 hover:bg-ekotruck-darkGreen/5"
+        >
+          Entendi
+        </button>
+      </div>
+    );
   }
 
   if (!confirming) {
