@@ -7,6 +7,7 @@ import {
 } from "@/lib/data";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StageStepper } from "@/components/StageStepper";
+import { DeleteCaseButton } from "@/components/DeleteCaseButton";
 
 function currency(v: number | null) {
   if (v == null) return "—";
@@ -51,7 +52,19 @@ export default async function CaseDetail({ params }: { params: { id: string } })
             </h1>
             <p className="text-sm text-ekotruck-gray">Cliente: {c.clientName}</p>
           </div>
-          <StatusBadge status={c.status} />
+          <div className="flex items-center gap-3">
+            <StatusBadge status={c.status} />
+            <DeleteCaseButton
+              caseId={c.id}
+              vehiclePlate={c.vehiclePlate}
+              vehicleModel={c.vehicleModel}
+              clientName={c.clientName}
+              branchName={c.branchName}
+              status={c.status}
+              baseTotal={c.baseTotal}
+              finalTotal={c.finalTotal}
+            />
+          </div>
         </div>
       </div>
 
