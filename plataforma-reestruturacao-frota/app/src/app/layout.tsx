@@ -51,6 +51,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <a href="/impacto" className="hover:text-white">
                     Impacto financeiro
                   </a>
+                  <a href="/relatorio" className="hover:text-white">
+                    Relatório
+                  </a>
                   {isAdmin && (
                     <a href="/admin/usuarios" className="hover:text-white">
                       Usuários

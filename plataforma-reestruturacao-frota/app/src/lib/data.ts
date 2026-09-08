@@ -235,3 +235,96 @@ export async function getCaseActivity(caseId: string): Promise<ActivityEntry[]> 
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 }
+
+export interface PartReportRow {
+  caseId: string;
+  vehiclePlate: string;
+  clientName: string;
+  taskNumber: number | null;
+  taskName: string;
+  partNumber: string;
+  description: string;
+  productLine: string;
+  sourceLabel: string;
+  quantity: number;
+  unitPrice: number;
+  cost: number;
+  originalCost: number | null;
+  approved: boolean;
+  justification: string | null;
+  brand: string;
+  supplier: string | null;
+  outsourced: boolean;
+  outsourcedTo: string | null;
+}
+
+// Relatório de peças (orçadas → moderadas → otimizadas) cruzando todos os
+// casos, para priorizar onde desenvolver soluções: peças removidas com
+// frequência na moderação, peças já com marca alternativa funcionando, e
+// peças que continuam saindo só como Scania original.
+export async function getPartsReportRows(): Promise<PartReportRow[]> {
+  const supabase = createClient();
+
+  const { data: optimizations } = await supabase
+    .from("budget_optimizations")
+    .select("id, case_id");
+  if (!optimizations || optimizations.length === 0) return [];
+
+  const optimizationIds = optimizations.map((o) => o.id);
+  const caseByOptimization = new Map(optimizations.map((o) => [o.id, o.case_id]));
+
+  const { data: items } = await supabase
+    .from("optimization_items")
+    .select("*")
+    .in("optimization_id", optimizationIds);
+  if (!items || items.length === 0) return [];
+
+  const caseIds = Array.from(new Set(optimizations.map((o) => o.case_id)));
+  const { data: cases } = await supabase
+    .from("return_cases")
+    .select("id, vehicles ( plate ), clients ( name )")
+    .in("id", caseIds);
+  const caseInfo = new Map(
+    (cases ?? []).map((c: any) => [c.id, { plate: c.vehicles?.plate ?? "—", client: c.clients?.name ?? "—" }])
+  );
+
+  const sourceIds = Array.from(
+    new Set(items.map((it: any) => it.source_unified_budget_item_id).filter((id: string | null): id is string => !!id))
+  );
+  const originalCosts = new Map<string, number>();
+  if (sourceIds.length > 0) {
+    const { data: sourceItems } = await supabase
+      .from("unified_budget_items")
+      .select("id, cost")
+      .in("id", sourceIds);
+    for (const s of sourceItems ?? []) originalCosts.set(s.id, s.cost);
+  }
+
+  return items.map((it: any) => {
+    const caseId = caseByOptimization.get(it.optimization_id) ?? "";
+    const info = caseInfo.get(caseId);
+    return {
+      caseId,
+      vehiclePlate: info?.plate ?? "—",
+      clientName: info?.client ?? "—",
+      taskNumber: it.task_number,
+      taskName: it.task_name || "",
+      partNumber: it.part_number || "",
+      description: it.description,
+      productLine: it.product_line || "",
+      sourceLabel: it.source_label || "",
+      quantity: it.quantity,
+      unitPrice: it.unit_price,
+      cost: it.cost,
+      originalCost: it.source_unified_budget_item_id
+        ? originalCosts.get(it.source_unified_budget_item_id) ?? null
+        : null,
+      approved: it.approved,
+      justification: it.justification,
+      brand: it.brand || "scania",
+      supplier: it.supplier,
+      outsourced: it.outsourced ?? false,
+      outsourcedTo: it.outsourced_to,
+    };
+  });
+}
