@@ -41,6 +41,36 @@ function isLaborLine(productLine: string) {
   return productLine === "90" || productLine === "92";
 }
 
+// Chave de agrupamento do histórico: por partnumber quando existe, senão por
+// descrição normalizada — mesmo critério usado no Relatório de Peças.
+function historyKey(partNumber: string, description: string) {
+  return partNumber.trim() || `desc:${description.trim().toLowerCase()}`;
+}
+
+interface OptimizedCombo {
+  brand: PartBrand;
+  supplier: string;
+  outsourced: boolean;
+  outsourced_to: string;
+  unitPrice: number;
+  createdAt: string;
+}
+
+// Estatística histórica de uma peça/serviço, cruzando todos os outros casos —
+// puramente consultiva: nunca altera dado nenhum sozinha, só informa o
+// especialista/operador para acelerar a decisão dele.
+interface PartHistoryStat {
+  timesSeen: number;
+  timesApproved: number;
+  topRejectionReason: string | null;
+  mostFrequentOptimized: (OptimizedCombo & { count: number }) | null;
+  mostRecentOptimized: OptimizedCombo | null;
+}
+
+function comboKey(c: { brand: PartBrand; supplier: string; outsourced: boolean; outsourced_to: string }) {
+  return `${c.brand}|${c.supplier}|${c.outsourced}|${c.outsourced_to}`;
+}
+
 interface OptItem {
   id: string;
   isNew?: boolean;
@@ -107,6 +137,9 @@ export function OptimizationPanel({
   const [originalItems, setOriginalItems] = useState<Record<string, OptItem>>({});
   // Preço original (do orçamento unificado) de cada item, para calcular a economia na precificação.
   const [originalCosts, setOriginalCosts] = useState<Record<string, number>>({});
+  // Histórico de moderação/otimização dessa mesma peça em outros casos —
+  // só leitura, para dar contexto prévio ao especialista/operador.
+  const [history, setHistory] = useState<Record<string, PartHistoryStat>>({});
 
   const [taskDefs, setTaskDefs] = useState<{ taskNumber: number | null; taskName: string }[]>([]);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -183,6 +216,113 @@ export function OptimizationPanel({
     }
 
     setLoading(false);
+    loadHistory(loaded, optimization.id);
+  }
+
+  // Busca, em todos os OUTROS casos, itens com o mesmo partnumber (ou mesma
+  // descrição, quando não há partnumber) para montar o histórico consultivo.
+  async function loadHistory(loadedItems: OptItem[], currentOptimizationId: string) {
+    const relevant = loadedItems.filter((it) => it.part_number.trim() || it.description.trim());
+    if (relevant.length === 0) {
+      setHistory({});
+      return;
+    }
+    const supabase = createClient();
+    const partNumbers = Array.from(new Set(relevant.filter((it) => it.part_number.trim()).map((it) => it.part_number.trim())));
+    const descriptions = Array.from(
+      new Set(relevant.filter((it) => !it.part_number.trim()).map((it) => it.description.trim()))
+    );
+
+    const rows: Record<string, any>[] = [];
+    if (partNumbers.length > 0) {
+      const { data } = await supabase
+        .from("optimization_items")
+        .select("part_number, description, approved, justification, brand, supplier, outsourced, outsourced_to, unit_price, created_at")
+        .in("part_number", partNumbers)
+        .neq("optimization_id", currentOptimizationId);
+      rows.push(...(data ?? []));
+    }
+    if (descriptions.length > 0) {
+      const { data } = await supabase
+        .from("optimization_items")
+        .select("part_number, description, approved, justification, brand, supplier, outsourced, outsourced_to, unit_price, created_at")
+        .in("description", descriptions)
+        .neq("optimization_id", currentOptimizationId);
+      rows.push(...(data ?? []));
+    }
+
+    const relevantKeys = new Set(relevant.map((it) => historyKey(it.part_number, it.description)));
+    const stats = new Map<
+      string,
+      {
+        timesSeen: number;
+        timesApproved: number;
+        rejectionReasons: Map<string, number>;
+        optimizedCombos: Map<string, { combo: OptimizedCombo; count: number }>;
+        mostRecentOptimized: OptimizedCombo | null;
+      }
+    >();
+
+    for (const row of rows) {
+      const key = historyKey(row.part_number || "", row.description || "");
+      if (!relevantKeys.has(key)) continue;
+      let s = stats.get(key);
+      if (!s) {
+        s = { timesSeen: 0, timesApproved: 0, rejectionReasons: new Map(), optimizedCombos: new Map(), mostRecentOptimized: null };
+        stats.set(key, s);
+      }
+      s.timesSeen += 1;
+      if (row.approved) {
+        s.timesApproved += 1;
+        const brand = (row.brand as PartBrand) || "scania";
+        const wasOptimized = brand !== "scania" || !!row.outsourced;
+        if (wasOptimized) {
+          const combo: OptimizedCombo = {
+            brand,
+            supplier: row.supplier || "",
+            outsourced: !!row.outsourced,
+            outsourced_to: row.outsourced_to || "",
+            unitPrice: row.unit_price ?? 0,
+            createdAt: row.created_at,
+          };
+          const ck = comboKey(combo);
+          const existing = s.optimizedCombos.get(ck);
+          s.optimizedCombos.set(ck, { combo, count: (existing?.count ?? 0) + 1 });
+          if (!s.mostRecentOptimized || new Date(combo.createdAt) > new Date(s.mostRecentOptimized.createdAt)) {
+            s.mostRecentOptimized = combo;
+          }
+        }
+      } else {
+        const reason = (row.justification || "").trim();
+        if (reason) s.rejectionReasons.set(reason, (s.rejectionReasons.get(reason) ?? 0) + 1);
+      }
+    }
+
+    const result: Record<string, PartHistoryStat> = {};
+    for (const [key, s] of stats.entries()) {
+      let topRejectionReason: string | null = null;
+      let topRejectionCount = 0;
+      for (const [reason, count] of s.rejectionReasons.entries()) {
+        if (count > topRejectionCount) {
+          topRejectionReason = reason;
+          topRejectionCount = count;
+        }
+      }
+      let mostFrequentOptimized: (OptimizedCombo & { count: number }) | null = null;
+      for (const { combo, count } of s.optimizedCombos.values()) {
+        if (!mostFrequentOptimized || count > mostFrequentOptimized.count) {
+          mostFrequentOptimized = { ...combo, count };
+        }
+      }
+      result[key] = {
+        timesSeen: s.timesSeen,
+        timesApproved: s.timesApproved,
+        topRejectionReason,
+        mostFrequentOptimized,
+        mostRecentOptimized: s.mostRecentOptimized,
+      };
+    }
+    setHistory(result);
   }
 
   useEffect(() => {
@@ -914,6 +1054,19 @@ export function OptimizationPanel({
                             onChange={(e) => updateItem(idx, { description: e.target.value })}
                             className="w-40 rounded border px-1 py-0.5"
                           />
+                          {(() => {
+                            const stat = history[historyKey(it.part_number, it.description)];
+                            if (!stat || stat.timesSeen === 0) return null;
+                            const rate = Math.round((stat.timesApproved / stat.timesSeen) * 100);
+                            return (
+                              <p className="mt-1 max-w-[10rem] text-[10px] leading-tight text-ekotruck-gray">
+                                🕘 Apareceu em {stat.timesSeen} orçamento(s) — aprovada {rate}% das vezes
+                                {stat.topRejectionReason && (
+                                  <> ; motivo comum ao desconsiderar: &quot;{stat.topRejectionReason}&quot;</>
+                                )}
+                              </p>
+                            );
+                          })()}
                         </td>
                         <td className="px-2 py-1.5 align-top">
                           <input
@@ -1117,6 +1270,50 @@ export function OptimizationPanel({
                                 )}
                               </div>
                             )}
+                            {(() => {
+                              const stat = history[historyKey(it.part_number, it.description)];
+                              const suggestion = stat?.mostFrequentOptimized;
+                              if (!suggestion) return null;
+                              const alreadyApplied = comboKey(suggestion) === comboKey(it);
+                              const recentDiffers =
+                                stat.mostRecentOptimized && comboKey(stat.mostRecentOptimized) !== comboKey(suggestion);
+                              return (
+                                <div className="mt-1 max-w-[11rem] rounded border border-dashed border-emerald-300 bg-emerald-50 px-1.5 py-1 text-[10px] leading-tight text-emerald-800">
+                                  <p>
+                                    🕘 Padrão mais usado ({suggestion.count}x):{" "}
+                                    {suggestion.outsourced
+                                      ? `Terceirizado — ${suggestion.outsourced_to || "-"}`
+                                      : brandLabel(suggestion.brand) + (suggestion.supplier ? ` — ${suggestion.supplier}` : "")}
+                                  </p>
+                                  {recentDiffers && (
+                                    <p className="mt-0.5 text-amber-700">
+                                      ⚠ Última vez foi diferente:{" "}
+                                      {stat.mostRecentOptimized!.outsourced
+                                        ? `Terceirizado — ${stat.mostRecentOptimized!.outsourced_to || "-"}`
+                                        : brandLabel(stat.mostRecentOptimized!.brand) +
+                                          (stat.mostRecentOptimized!.supplier ? ` — ${stat.mostRecentOptimized!.supplier}` : "")}
+                                    </p>
+                                  )}
+                                  {!alreadyApplied && (
+                                    <button
+                                      type="button"
+                                      disabled={saving || disabled}
+                                      onClick={() =>
+                                        updateItem(idx, {
+                                          brand: suggestion.brand,
+                                          supplier: suggestion.supplier,
+                                          outsourced: suggestion.outsourced,
+                                          outsourced_to: suggestion.outsourced_to,
+                                        })
+                                      }
+                                      className="mt-1 rounded bg-emerald-600 px-1.5 py-0.5 font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                    >
+                                      Usar este padrão
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                         </tr>
                       );
