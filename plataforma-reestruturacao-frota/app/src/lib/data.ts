@@ -238,6 +238,7 @@ export async function getCaseActivity(caseId: string): Promise<ActivityEntry[]> 
 
 export interface PartReportRow {
   caseId: string;
+  createdAt: string;
   vehiclePlate: string;
   clientName: string;
   taskNumber: number | null;
@@ -305,6 +306,7 @@ export async function getPartsReportRows(): Promise<PartReportRow[]> {
     const info = caseInfo.get(caseId);
     return {
       caseId,
+      createdAt: it.created_at,
       vehiclePlate: info?.plate ?? "—",
       clientName: info?.client ?? "—",
       taskNumber: it.task_number,
