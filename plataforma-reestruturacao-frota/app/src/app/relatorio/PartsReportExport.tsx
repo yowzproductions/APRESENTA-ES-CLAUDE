@@ -9,6 +9,10 @@ function brandLabel(b: string) {
   return "Scania Original";
 }
 
+function natureLabel(n: string) {
+  return n === "preventiva" ? "Preventiva" : "Corretiva";
+}
+
 function partKey(row: PartReportRow) {
   return row.partNumber.trim() || `desc:${row.description.trim().toLowerCase()}`;
 }
@@ -111,6 +115,7 @@ export function PartsReportExport({ rows }: { rows: PartReportRow[] }) {
       Terceirizado: r.outsourced ? "Sim" : "Não",
       "Oficina terceirizada": r.outsourcedTo || "",
       "Economia (custo original - atual)": r.originalCost != null ? r.originalCost - r.cost : "",
+      Natureza: natureLabel(r.nature),
     }));
 
     const removedSheet = removedRows.map((r) => ({
@@ -122,6 +127,7 @@ export function PartsReportExport({ rows }: { rows: PartReportRow[] }) {
       Quantidade: r.quantity,
       "Valor (orçamento original)": r.originalCost ?? r.cost,
       Motivo: r.justification || "",
+      Natureza: natureLabel(r.nature),
     }));
 
     const optimizedSheet = optimizedRows.map((r) => ({
@@ -138,6 +144,7 @@ export function PartsReportExport({ rows }: { rows: PartReportRow[] }) {
       "Custo original": r.originalCost,
       "Custo otimizado": r.cost,
       Economia: r.originalCost != null ? r.originalCost - r.cost : "",
+      Natureza: natureLabel(r.nature),
     }));
 
     const notOptimizedSheet = notOptimizedRows
@@ -151,6 +158,7 @@ export function PartsReportExport({ rows }: { rows: PartReportRow[] }) {
         Quantidade: r.quantity,
         "Preço Unit.": r.unitPrice,
         "Custo (ainda Scania)": r.cost,
+        Natureza: natureLabel(r.nature),
       }));
 
     const wb = XLSX.utils.book_new();

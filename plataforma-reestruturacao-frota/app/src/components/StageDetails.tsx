@@ -18,6 +18,21 @@ function taskKey(taskNumber: number | null, taskName: string) {
   return `${taskNumber ?? "none"}|${taskName || ""}`;
 }
 
+type Nature = "corretiva" | "preventiva";
+
+function NatureBadge({ nature }: { nature: Nature | null | undefined }) {
+  const n: Nature = nature === "preventiva" ? "preventiva" : "corretiva";
+  return (
+    <span
+      className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+        n === "preventiva" ? "bg-sky-100 text-sky-700" : "bg-amber-100 text-amber-700"
+      }`}
+    >
+      {n === "preventiva" ? "Preventiva" : "Corretiva"}
+    </span>
+  );
+}
+
 function groupByTask<T extends { task_number: number | null; task_name: string }>(items: T[]) {
   const map = new Map<string, { taskNumber: number | null; taskName: string; entries: T[] }>();
   const order: string[] = [];
@@ -48,6 +63,8 @@ interface MechItem {
   estimated_cost: number;
   task_number: number | null;
   task_name: string | null;
+  nature: Nature | null;
+  budgetName: string;
 }
 
 function MechanicalSummary({ caseId }: { caseId: string }) {
@@ -57,14 +74,23 @@ function MechanicalSummary({ caseId }: { caseId: string }) {
   useEffect(() => {
     (async () => {
       const supabase = createClient();
-      const { data: inspections } = await supabase.from("mechanical_inspections").select("id").eq("case_id", caseId);
+      const { data: inspections } = await supabase
+        .from("mechanical_inspections")
+        .select("id, budget_name")
+        .eq("case_id", caseId);
       const ids = (inspections ?? []).map((i) => i.id);
       if (ids.length === 0) {
         setLoading(false);
         return;
       }
+      const nameByInspection = new Map((inspections ?? []).map((i) => [i.id, i.budget_name as string | null]));
       const { data } = await supabase.from("mechanical_items").select("*").in("inspection_id", ids);
-      setItems((data as MechItem[]) ?? []);
+      setItems(
+        ((data as (MechItem & { inspection_id: string })[]) ?? []).map((it) => ({
+          ...it,
+          budgetName: nameByInspection.get(it.inspection_id) || "Orçamento sem nome",
+        }))
+      );
       setLoading(false);
     })();
   }, [caseId]);
@@ -72,7 +98,7 @@ function MechanicalSummary({ caseId }: { caseId: string }) {
   if (loading) return <p className="text-xs text-ekotruck-gray">Carregando...</p>;
   if (items.length === 0) return <p className="text-xs text-ekotruck-gray">Nenhum item registrado.</p>;
 
-  const groups = groupByTask(items.map((it) => ({ ...it, task_name: it.task_name || "" })));
+  const budgetNames = Array.from(new Set(items.map((it) => it.budgetName)));
   const total = items.reduce((s, it) => s + it.estimated_cost, 0);
 
   function downloadPdf() {
@@ -83,29 +109,45 @@ function MechanicalSummary({ caseId }: { caseId: string }) {
     doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 14, 22);
 
     let y = 28;
-    for (const g of groups) {
-      if (y > 270) {
+    for (const budgetName of budgetNames) {
+      const budgetItems = items.filter((it) => it.budgetName === budgetName);
+      const groups = groupByTask(budgetItems.map((it) => ({ ...it, task_name: it.task_name || "" })));
+      if (y > 260) {
         doc.addPage();
         y = 20;
       }
-      doc.setFontSize(11);
-      doc.text(g.taskNumber != null ? `Tarefa ${g.taskNumber}${g.taskName ? ` — ${g.taskName}` : ""}` : "Sem tarefa", 14, y);
-      y += 4;
-      autoTable(doc, {
-        startY: y,
-        head: [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total"]],
-        body: g.entries.map((it) => [
-          it.product_line || "",
-          it.part_number || "",
-          it.description,
-          String(it.quantity ?? ""),
-          currency(it.estimated_cost),
-        ]),
-        styles: { fontSize: 8 },
-        headStyles: { fillColor: [1, 45, 43] },
-        margin: { left: 14, right: 14 },
-      });
-      y = finalY(doc) + 8;
+      doc.setFontSize(12);
+      doc.text(`Orçamento: ${budgetName}`, 14, y);
+      y += 5;
+      for (const g of groups) {
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.setFontSize(11);
+        doc.text(
+          g.taskNumber != null ? `Tarefa ${g.taskNumber}${g.taskName ? ` — ${g.taskName}` : ""}` : "Sem tarefa",
+          14,
+          y
+        );
+        y += 4;
+        autoTable(doc, {
+          startY: y,
+          head: [["Linha", "Partnumber", "Descrição", "Qtde.", "Preço Total", "Natureza"]],
+          body: g.entries.map((it) => [
+            it.product_line || "",
+            it.part_number || "",
+            it.description,
+            String(it.quantity ?? ""),
+            currency(it.estimated_cost),
+            it.nature === "preventiva" ? "Preventiva" : "Corretiva",
+          ]),
+          styles: { fontSize: 8 },
+          headStyles: { fillColor: [1, 45, 43] },
+          margin: { left: 14, right: 14 },
+        });
+        y = finalY(doc) + 8;
+      }
     }
 
     doc.setFontSize(12);
@@ -114,7 +156,7 @@ function MechanicalSummary({ caseId }: { caseId: string }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <button
         type="button"
         onClick={downloadPdf}
@@ -122,27 +164,41 @@ function MechanicalSummary({ caseId }: { caseId: string }) {
       >
         📄 Baixar PDF da inspeção mecânica
       </button>
-      {groups.map((g) => (
-        <div key={taskKey(g.taskNumber, g.taskName)} className="overflow-x-auto rounded-md border">
-          <div className="bg-ekotruck-darkGreen/5 px-2 py-1 text-xs font-semibold text-ekotruck-darkGreen">
-            {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : "Sem tarefa"}
-            {g.taskName ? ` — ${g.taskName}` : ""}
+      {budgetNames.map((budgetName) => {
+        const budgetItems = items.filter((it) => it.budgetName === budgetName);
+        const groups = groupByTask(budgetItems.map((it) => ({ ...it, task_name: it.task_name || "" })));
+        const budgetTotal = budgetItems.reduce((s, it) => s + it.estimated_cost, 0);
+        return (
+          <div key={budgetName} className="space-y-2">
+            <p className="text-sm font-semibold text-ekotruck-darkGreen">📎 {budgetName}</p>
+            {groups.map((g) => (
+              <div key={taskKey(g.taskNumber, g.taskName)} className="overflow-x-auto rounded-md border">
+                <div className="bg-ekotruck-darkGreen/5 px-2 py-1 text-xs font-semibold text-ekotruck-darkGreen">
+                  {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : "Sem tarefa"}
+                  {g.taskName ? ` — ${g.taskName}` : ""}
+                </div>
+                <table className="w-full text-xs">
+                  <tbody>
+                    {g.entries.map((it, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="px-2 py-1">{it.product_line}</td>
+                        <td className="px-2 py-1">{it.part_number}</td>
+                        <td className="px-2 py-1">{it.description}</td>
+                        <td className="px-2 py-1">{it.quantity}</td>
+                        <td className="px-2 py-1">{currency(it.estimated_cost)}</td>
+                        <td className="px-2 py-1">
+                          <NatureBadge nature={it.nature} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            <div className="text-right text-xs font-semibold">Subtotal: {currency(budgetTotal)}</div>
           </div>
-          <table className="w-full text-xs">
-            <tbody>
-              {g.entries.map((it, i) => (
-                <tr key={i} className="border-t">
-                  <td className="px-2 py-1">{it.product_line}</td>
-                  <td className="px-2 py-1">{it.part_number}</td>
-                  <td className="px-2 py-1">{it.description}</td>
-                  <td className="px-2 py-1">{it.quantity}</td>
-                  <td className="px-2 py-1">{currency(it.estimated_cost)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
+        );
+      })}
       <div className="text-right text-xs font-semibold">Total: {currency(total)}</div>
     </div>
   );
@@ -165,6 +221,7 @@ interface ChecklistPart {
   quantity: number | null;
   unit_price: number | null;
   total_price: number;
+  nature: Nature | null;
 }
 
 function InspectionSummary({ caseId }: { caseId: string }) {
@@ -308,6 +365,9 @@ function InspectionSummary({ caseId }: { caseId: string }) {
                       <td className="px-1 py-0.5">{it.description}</td>
                       <td className="px-1 py-0.5">{it.quantity}</td>
                       <td className="px-1 py-0.5">{currency(it.total_price)}</td>
+                      <td className="px-1 py-0.5">
+                        <NatureBadge nature={it.nature} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -333,6 +393,7 @@ interface UnifiedItem {
   included: boolean;
   task_number: number | null;
   task_name: string | null;
+  nature: Nature | null;
 }
 
 function UnifiedBudgetSummary({ caseId }: { caseId: string }) {
@@ -429,6 +490,9 @@ function UnifiedBudgetSummary({ caseId }: { caseId: string }) {
                   <td className="px-2 py-1">{it.description}</td>
                   <td className="px-2 py-1">{it.quantity}</td>
                   <td className="px-2 py-1">{currency(it.cost)}</td>
+                  <td className="px-2 py-1">
+                    <NatureBadge nature={it.nature} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -464,6 +528,7 @@ interface OptItem {
   supplier: string | null;
   outsourced: boolean;
   outsourced_to: string | null;
+  nature: Nature | null;
 }
 
 function OptimizationSummary({ caseId }: { caseId: string }) {
@@ -595,6 +660,9 @@ function OptimizationSummary({ caseId }: { caseId: string }) {
                   <td className="px-2 py-1">{it.quantity}</td>
                   <td className="px-2 py-1">{currency(it.cost)}</td>
                   <td className="px-2 py-1">{it.approved ? "Aprovado" : it.justification || "Desconsiderado"}</td>
+                  <td className="px-2 py-1">
+                    <NatureBadge nature={it.nature} />
+                  </td>
                   {pricingDone && it.approved && (
                     <td className="px-2 py-1">
                       {it.outsourced

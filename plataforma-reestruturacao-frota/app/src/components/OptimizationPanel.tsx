@@ -28,6 +28,7 @@ const NONE_TASK = "__none__";
 const NEW_TASK = "__new__";
 
 type PartBrand = "scania" | "ekotruck" | "ekotruck_spot";
+type Nature = "corretiva" | "preventiva";
 
 function brandLabel(b: PartBrand) {
   if (b === "ekotruck") return "Ekotruck";
@@ -90,6 +91,7 @@ interface OptItem {
   supplier: string;
   outsourced: boolean;
   outsourced_to: string;
+  nature: Nature;
 }
 
 function blankOptItem(): OptItem {
@@ -112,6 +114,7 @@ function blankOptItem(): OptItem {
     supplier: "",
     outsourced: false,
     outsourced_to: "",
+    nature: "corretiva",
   };
 }
 
@@ -197,6 +200,7 @@ export function OptimizationPanel({
       supplier: it.supplier || "",
       outsourced: it.outsourced ?? false,
       outsourced_to: it.outsourced_to || "",
+      nature: (it.nature as Nature) || "corretiva",
     }));
     setItems(loaded);
     setOriginalItems(Object.fromEntries(loaded.map((it) => [it.id, it])));
@@ -382,6 +386,7 @@ export function OptimizationPanel({
       task_number: it.task_number,
       task_name: it.task_name || "",
       approved: true,
+      nature: it.nature || "corretiva",
     }));
 
     let insertedRows: { id: string; description: string }[] = [];
@@ -440,6 +445,17 @@ export function OptimizationPanel({
       const it = prev[index];
       if (!it.isNew) setRemovedItems((r) => [...r, { id: it.id, description: it.description }]);
       return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  // Marca a natureza de todos os itens de uma tarefa de uma vez (atalho); o
+  // especialista/operador ainda pode ajustar item a item depois.
+  function setGroupNature(entries: { index: number }[], nature: Nature) {
+    setItems((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      for (const { index } of entries) next[index] = { ...next[index], nature };
+      return next;
     });
   }
 
@@ -644,6 +660,9 @@ export function OptimizationPanel({
     if (before.outsourced && after.outsourced && before.outsourced_to !== after.outsourced_to) {
       changes.push(`oficina terceirizada de "${before.outsourced_to || "-"}" para "${after.outsourced_to || "-"}"`);
     }
+    if (before.nature !== after.nature) {
+      changes.push(`natureza de "${before.nature}" para "${after.nature}"`);
+    }
     return changes;
   }
 
@@ -698,6 +717,7 @@ export function OptimizationPanel({
           task_name: it.task_name,
           approved: it.approved,
           justification: it.justification || null,
+          nature: it.nature,
         });
         if (insErr) {
           setError(insErr.message);
@@ -728,6 +748,7 @@ export function OptimizationPanel({
             task_name: it.task_name,
             approved: it.approved,
             justification: it.justification || null,
+            nature: it.nature,
           })
           .eq("id", it.id);
         if (updErr) {
@@ -811,6 +832,7 @@ export function OptimizationPanel({
           supplier: it.supplier || null,
           outsourced: it.outsourced,
           outsourced_to: it.outsourced_to || null,
+          nature: it.nature,
         })
         .eq("id", it.id);
       if (updErr) {
@@ -1010,6 +1032,7 @@ export function OptimizationPanel({
                 <th className="px-2 py-1.5">Qtde.</th>
                 <th className="px-2 py-1.5">Preço Unit.</th>
                 <th className="px-2 py-1.5">Preço Total</th>
+                <th className="px-2 py-1.5">Natureza</th>
                 <th className="px-2 py-1.5">Status</th>
                 <th className="px-2 py-1.5"></th>
               </tr>
@@ -1020,9 +1043,24 @@ export function OptimizationPanel({
                 return (
                   <Fragment key={g.reactKey}>
                     <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-mint/20">
-                      <td colSpan={9} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
+                      <td colSpan={8} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
                         {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : g.taskName || "Sem tarefa"}
                         {g.taskNumber != null && g.taskName ? ` — ${g.taskName}` : ""}
+                      </td>
+                      <td colSpan={2} className="px-2 py-1.5">
+                        <select
+                          defaultValue=""
+                          disabled={saving || disabled}
+                          onChange={(e) => {
+                            if (e.target.value) setGroupNature(g.entries, e.target.value as Nature);
+                            e.target.value = "";
+                          }}
+                          className="rounded border px-1 py-0.5 text-xs"
+                        >
+                          <option value="">Marcar tarefa toda...</option>
+                          <option value="corretiva">Corretiva</option>
+                          <option value="preventiva">Preventiva</option>
+                        </select>
                       </td>
                     </tr>
                     {g.entries.map(({ item: it, index: idx }) => (
@@ -1088,6 +1126,17 @@ export function OptimizationPanel({
                         </td>
                         <td className="px-2 py-1.5 align-top">{currency(it.cost)}</td>
                         <td className="px-2 py-1.5 align-top">
+                          <select
+                            value={it.nature}
+                            disabled={saving || disabled}
+                            onChange={(e) => updateItem(idx, { nature: e.target.value as Nature })}
+                            className="rounded border px-1 py-0.5"
+                          >
+                            <option value="corretiva">Corretiva</option>
+                            <option value="preventiva">Preventiva</option>
+                          </select>
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
                           <div className="flex overflow-hidden rounded-md border text-xs">
                             <button
                               type="button"
@@ -1133,7 +1182,7 @@ export function OptimizationPanel({
                     ))}
                     <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5">
                       <td colSpan={6}></td>
-                      <td colSpan={3} className="px-2 py-1.5 text-right font-medium">
+                      <td colSpan={4} className="px-2 py-1.5 text-right font-medium">
                         Subtotal: {currency(subtotal)}
                       </td>
                     </tr>
@@ -1141,7 +1190,7 @@ export function OptimizationPanel({
                 );
               })}
               <tr className="border-t border-ekotruck-darkGreen/10">
-                <td colSpan={9} className="px-2 py-1.5">
+                <td colSpan={10} className="px-2 py-1.5">
                   {addItemControls}
                 </td>
               </tr>
@@ -1170,6 +1219,7 @@ export function OptimizationPanel({
                 <th className="px-2 py-1.5">Preço Total</th>
                 <th className="px-2 py-1.5">Preço Original</th>
                 <th className="px-2 py-1.5">Economia</th>
+                <th className="px-2 py-1.5">Natureza</th>
                 <th className="px-2 py-1.5">Otimização</th>
               </tr>
             </thead>
@@ -1179,9 +1229,24 @@ export function OptimizationPanel({
                 return (
                   <Fragment key={g.reactKey}>
                     <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-mint/20">
-                      <td colSpan={9} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
+                      <td colSpan={8} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
                         {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : g.taskName || "Sem tarefa"}
                         {g.taskNumber != null && g.taskName ? ` — ${g.taskName}` : ""}
+                      </td>
+                      <td colSpan={2} className="px-2 py-1.5">
+                        <select
+                          defaultValue=""
+                          disabled={saving || disabled}
+                          onChange={(e) => {
+                            if (e.target.value) setGroupNature(g.entries, e.target.value as Nature);
+                            e.target.value = "";
+                          }}
+                          className="rounded border px-1 py-0.5 text-xs"
+                        >
+                          <option value="">Marcar tarefa toda...</option>
+                          <option value="corretiva">Corretiva</option>
+                          <option value="preventiva">Preventiva</option>
+                        </select>
                       </td>
                     </tr>
                     {g.entries.map(({ item: it, index: idx }) => {
@@ -1219,6 +1284,17 @@ export function OptimizationPanel({
                             }`}
                           >
                             {currency(savings)}
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
+                            <select
+                              value={it.nature}
+                              disabled={saving || disabled}
+                              onChange={(e) => updateItem(idx, { nature: e.target.value as Nature })}
+                              className="rounded border px-1 py-0.5"
+                            >
+                              <option value="corretiva">Corretiva</option>
+                              <option value="preventiva">Preventiva</option>
+                            </select>
                           </td>
                           <td className="px-2 py-1.5 align-top">
                             {labor ? (
@@ -1320,7 +1396,7 @@ export function OptimizationPanel({
                     })}
                     <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5">
                       <td colSpan={5}></td>
-                      <td colSpan={4} className="px-2 py-1.5 text-right font-medium">
+                      <td colSpan={5} className="px-2 py-1.5 text-right font-medium">
                         Subtotal: {currency(subtotal)}
                       </td>
                     </tr>
