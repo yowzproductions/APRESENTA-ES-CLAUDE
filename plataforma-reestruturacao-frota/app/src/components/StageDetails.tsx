@@ -696,6 +696,7 @@ interface Incident {
   cost: number;
   brand: PartBrand;
   supplier: string | null;
+  budget_name: string | null;
 }
 
 function ExecutionSummary({ caseId }: { caseId: string }) {
@@ -731,7 +732,9 @@ function ExecutionSummary({ caseId }: { caseId: string }) {
 
     autoTable(doc, {
       startY: 28,
-      head: [["Tipo", "Categoria", "Partnumber", "Descrição", "Qtde.", "Preço Unit.", "Custo", "Marca / Fornecedor"]],
+      head: [
+        ["Tipo", "Categoria", "Partnumber", "Descrição", "Qtde.", "Preço Unit.", "Custo", "Marca / Fornecedor", "Orçamento"],
+      ],
       body: incidents.map((it) => [
         it.kind === "adicionado" ? "Adicionado" : "Removido",
         it.category === "peca" ? "Peça" : "Serviço",
@@ -741,6 +744,7 @@ function ExecutionSummary({ caseId }: { caseId: string }) {
         currency(it.unit_price),
         currency(it.cost),
         it.category === "peca" ? brandLabel(it.brand) + (it.supplier ? ` — ${it.supplier}` : "") : it.supplier || "",
+        it.budget_name || "",
       ]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [1, 45, 43] },
@@ -789,6 +793,7 @@ function ExecutionSummary({ caseId }: { caseId: string }) {
                   {it.category === "peca" ? brandLabel(it.brand) : it.supplier || "-"}
                   {it.category === "peca" && it.supplier ? ` — ${it.supplier}` : ""}
                 </td>
+                <td className="px-2 py-1">{it.budget_name ? `📎 ${it.budget_name}` : "-"}</td>
               </tr>
             ))}
           </tbody>
