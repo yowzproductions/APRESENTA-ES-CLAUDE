@@ -19,6 +19,8 @@ function parseCurrencyInput(raw: string): number {
 const DAMAGE_TYPES = ["Amassado", "Falta", "Pique", "Quebrado", "Riscado", "Trincado"];
 const OUTRO = "Outro";
 
+type Nature = "corretiva" | "preventiva";
+
 interface PartItem {
   description: string;
   productLine: string;
@@ -26,6 +28,7 @@ interface PartItem {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  nature: Nature;
 }
 
 interface ChecklistPoint {
@@ -39,7 +42,15 @@ interface ChecklistPoint {
 }
 
 function blankPart(): PartItem {
-  return { description: "", productLine: "", partNumber: "", quantity: 1, unitPrice: 0, totalPrice: 0 };
+  return {
+    description: "",
+    productLine: "",
+    partNumber: "",
+    quantity: 1,
+    unitPrice: 0,
+    totalPrice: 0,
+    nature: "corretiva",
+  };
 }
 
 export function InspectionChecklistPanel({
@@ -252,6 +263,7 @@ export function InspectionChecklistPanel({
               quantity: it.quantity,
               unit_price: it.unitPrice,
               total_price: it.totalPrice,
+              nature: it.nature,
             }))
           )
           .select("id, description");
@@ -398,6 +410,7 @@ export function InspectionChecklistPanel({
                               <th className="px-2 py-1">Qtde.</th>
                               <th className="px-2 py-1">Preço Unit.</th>
                               <th className="px-2 py-1">Preço Total</th>
+                              <th className="px-2 py-1">Natureza</th>
                               <th className="px-2 py-1"></th>
                             </tr>
                           </thead>
@@ -451,6 +464,17 @@ export function InspectionChecklistPanel({
                                   />
                                 </td>
                                 <td className="px-2 py-1">{currency(it.totalPrice)}</td>
+                                <td className="px-2 py-1">
+                                  <select
+                                    value={it.nature}
+                                    disabled={saving || disabled}
+                                    onChange={(e) => updatePart(idx, partIdx, { nature: e.target.value as Nature })}
+                                    className="rounded border px-1 py-0.5"
+                                  >
+                                    <option value="corretiva">Corretiva</option>
+                                    <option value="preventiva">Preventiva</option>
+                                  </select>
+                                </td>
                                 <td className="px-2 py-1">
                                   <button
                                     type="button"

@@ -23,6 +23,8 @@ function taskKey(taskNumber: number | null, taskName: string) {
 const NONE_TASK = "__none__";
 const NEW_TASK = "__new__";
 
+type Nature = "corretiva" | "preventiva";
+
 interface BudgetItem {
   id: string;
   isNew?: boolean;
@@ -37,6 +39,7 @@ interface BudgetItem {
   included: boolean;
   task_number: number | null;
   task_name: string;
+  nature: Nature;
 }
 
 function blankBudgetItem(): BudgetItem {
@@ -54,6 +57,7 @@ function blankBudgetItem(): BudgetItem {
     included: true,
     task_number: null,
     task_name: "",
+    nature: "corretiva",
   };
 }
 
@@ -127,6 +131,7 @@ export function UnifiedBudgetPanel({
       included: it.included,
       task_number: it.task_number,
       task_name: it.task_name || "",
+      nature: (it.nature as Nature) || "corretiva",
     }));
     setItems(loaded);
     setOriginalItems(Object.fromEntries(loaded.map((it) => [it.id, it])));
@@ -149,9 +154,10 @@ export function UnifiedBudgetPanel({
 
     const { data: inspections } = await supabase
       .from("mechanical_inspections")
-      .select("id")
+      .select("id, budget_name")
       .eq("case_id", caseId);
     const inspectionIds = (inspections ?? []).map((i) => i.id);
+    const budgetNameByInspection = new Map((inspections ?? []).map((i) => [i.id, i.budget_name as string | null]));
     const { data: mechItems } = inspectionIds.length
       ? await supabase.from("mechanical_items").select("*").in("inspection_id", inspectionIds)
       : { data: [] as Record<string, unknown>[] };
@@ -191,6 +197,7 @@ export function UnifiedBudgetPanel({
 
     const rows: Record<string, unknown>[] = [];
     for (const it of mechItems ?? []) {
+      const budgetName = budgetNameByInspection.get(it.inspection_id);
       rows.push({
         unified_budget_id: budget.id,
         description: it.description,
@@ -201,10 +208,11 @@ export function UnifiedBudgetPanel({
         product_line: it.product_line,
         quantity: it.quantity,
         unit_price: it.unit_price,
-        source_label: "Inspeção Mecânica",
+        source_label: budgetName ? `Inspeção Mecânica — ${budgetName}` : "Inspeção Mecânica",
         task_number: it.task_number,
         task_name: it.task_name || "",
         included: true,
+        nature: it.nature || "corretiva",
       });
     }
 
@@ -229,6 +237,7 @@ export function UnifiedBudgetPanel({
         task_number: null,
         task_name: pointLabel,
         included: true,
+        nature: p.nature || "corretiva",
       });
     }
 
@@ -288,6 +297,17 @@ export function UnifiedBudgetPanel({
       const it = prev[index];
       if (!it.isNew) setRemovedItems((r) => [...r, { id: it.id, description: it.description }]);
       return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  // Marca a natureza de todos os itens de uma tarefa de uma vez (atalho); o
+  // operador ainda pode ajustar item a item depois.
+  function setGroupNature(entries: { index: number }[], nature: Nature) {
+    setItems((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      for (const { index } of entries) next[index] = { ...next[index], nature };
+      return next;
     });
   }
 
@@ -486,6 +506,9 @@ export function UnifiedBudgetPanel({
     if (taskKey(before.task_number, before.task_name) !== taskKey(after.task_number, after.task_name)) {
       changes.push("tarefa alterada");
     }
+    if (before.nature !== after.nature) {
+      changes.push(`natureza de "${before.nature}" para "${after.nature}"`);
+    }
     return changes;
   }
 
@@ -540,6 +563,7 @@ export function UnifiedBudgetPanel({
           task_number: it.task_number,
           task_name: it.task_name,
           included: it.included,
+          nature: it.nature,
         });
         if (insErr) {
           setError(insErr.message);
@@ -569,6 +593,7 @@ export function UnifiedBudgetPanel({
             task_number: it.task_number,
             task_name: it.task_name,
             included: it.included,
+            nature: it.nature,
           })
           .eq("id", it.id);
         if (updErr) {
@@ -768,6 +793,7 @@ export function UnifiedBudgetPanel({
                 <th className="px-2 py-1.5">Qtde.</th>
                 <th className="px-2 py-1.5">Preço Unit.</th>
                 <th className="px-2 py-1.5">Preço Total</th>
+                <th className="px-2 py-1.5">Natureza</th>
                 <th className="px-2 py-1.5">Incluir</th>
                 <th className="px-2 py-1.5"></th>
               </tr>
@@ -778,9 +804,24 @@ export function UnifiedBudgetPanel({
                 return (
                   <Fragment key={g.reactKey}>
                     <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-mint/20">
-                      <td colSpan={9} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
+                      <td colSpan={8} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
                         {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : g.taskName || "Sem tarefa"}
                         {g.taskNumber != null && g.taskName ? ` — ${g.taskName}` : ""}
+                      </td>
+                      <td colSpan={2} className="px-2 py-1.5">
+                        <select
+                          defaultValue=""
+                          disabled={saving || disabled}
+                          onChange={(e) => {
+                            if (e.target.value) setGroupNature(g.entries, e.target.value as Nature);
+                            e.target.value = "";
+                          }}
+                          className="rounded border px-1 py-0.5 text-xs"
+                        >
+                          <option value="">Marcar tarefa toda...</option>
+                          <option value="corretiva">Corretiva</option>
+                          <option value="preventiva">Preventiva</option>
+                        </select>
                       </td>
                     </tr>
                     {g.entries.map(({ item: it, index: idx }) => {
@@ -840,6 +881,17 @@ export function UnifiedBudgetPanel({
                           </td>
                           <td className="px-2 py-1.5 align-top">{currency(it.cost)}</td>
                           <td className="px-2 py-1.5 align-top">
+                            <select
+                              value={it.nature}
+                              disabled={saving || disabled}
+                              onChange={(e) => updateItem(idx, { nature: e.target.value as Nature })}
+                              className="rounded border px-1 py-0.5"
+                            >
+                              <option value="corretiva">Corretiva</option>
+                              <option value="preventiva">Preventiva</option>
+                            </select>
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
                             <input
                               type="checkbox"
                               checked={it.included}
@@ -861,7 +913,7 @@ export function UnifiedBudgetPanel({
                     })}
                     <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5">
                       <td colSpan={6}></td>
-                      <td colSpan={3} className="px-2 py-1.5 text-right font-medium">
+                      <td colSpan={4} className="px-2 py-1.5 text-right font-medium">
                         Subtotal: {currency(subtotal)}
                       </td>
                     </tr>
@@ -869,7 +921,7 @@ export function UnifiedBudgetPanel({
                 );
               })}
               <tr className="border-t border-ekotruck-darkGreen/10">
-                <td colSpan={9} className="px-2 py-1.5">
+                <td colSpan={10} className="px-2 py-1.5">
                   {addItemControls}
                 </td>
               </tr>
