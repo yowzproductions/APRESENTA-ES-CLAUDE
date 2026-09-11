@@ -331,89 +331,99 @@ export function MechanicalInspectionPanel({
   }
 
   async function saveDraftBudget() {
-    if (!uploadedPath || !items || items.length === 0) return;
+    setError(null);
     if (!budgetName.trim()) {
       setError('Dê um nome para este orçamento (ex.: "Motor", "Câmbio") antes de salvar.');
       return;
     }
+    if (!items || items.length === 0) {
+      setError('Escolha o PDF e clique em "Analisar PDF" antes de salvar o orçamento.');
+      return;
+    }
+    if (!uploadedPath) {
+      setError("Não encontrei o PDF enviado — escolha o arquivo e clique em \"Analisar PDF\" novamente.");
+      return;
+    }
     setSaving(true);
-    setError(null);
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    // O arquivo já foi enviado ao Storage em analyze() — aqui só registramos
-    // o anexo, sem subir de novo.
-    await supabase.from("attachments").insert({
-      related_table: "return_cases",
-      related_id: caseId,
-      stage,
-      url: uploadedPath,
-      uploaded_by: user?.id,
-    });
-
-    const name = budgetName.trim();
-    const { data: inspection, error: insErr } = await supabase
-      .from("mechanical_inspections")
-      .insert({ case_id: caseId, mechanic_id: user?.id, performed_at: new Date().toISOString(), budget_name: name })
-      .select("id")
-      .single();
-    if (insErr) {
-      setError(insErr.message);
-      setSaving(false);
-      return;
-    }
-
-    const { data: insertedItems, error: itemsErr } = await supabase
-      .from("mechanical_items")
-      .insert(
-        items.map((it) => ({
-          inspection_id: inspection.id,
-          description: it.description,
-          estimated_cost: it.totalPrice,
-          task_number: it.taskNumber,
-          task_name: it.taskName,
-          product_line: it.productLine,
-          part_number: it.partNumber,
-          quantity: it.quantity,
-          unit_price: it.unitPrice,
-          nature: it.nature,
-        }))
-      )
-      .select("id, description, task_number, task_name");
-    if (itemsErr) {
-      setError(itemsErr.message);
-      setSaving(false);
-      return;
-    }
-
-    await supabase.from("activity_log").insert([
-      {
-        case_id: caseId,
-        actor_id: user?.id,
-        actor_email: user?.email,
+      // O arquivo já foi enviado ao Storage em analyze() — aqui só registramos
+      // o anexo, sem subir de novo.
+      await supabase.from("attachments").insert({
+        related_table: "return_cases",
+        related_id: caseId,
         stage,
-        action: "orcamento_mecanico_anexado",
-        description: `Anexou o orçamento "${name}" da inspeção mecânica com ${items.length} item(ns), total ${currency(
-          total
-        )}.`,
-      },
-      ...(insertedItems ?? []).map((row) => ({
-        case_id: caseId,
-        actor_id: user?.id,
-        actor_email: user?.email,
-        stage,
-        action: "item_criado",
-        description: `Criou o item "${row.description}"${
-          row.task_number != null ? ` (Tarefa ${row.task_number}${row.task_name ? ` — ${row.task_name}` : ""})` : ""
-        } no orçamento "${name}" da inspeção mecânica.`,
-      })),
-    ]);
+        url: uploadedPath,
+        uploaded_by: user?.id,
+      });
 
-    setSaving(false);
-    resetDraft();
-    await loadSavedBudgets();
+      const name = budgetName.trim();
+      const { data: inspection, error: insErr } = await supabase
+        .from("mechanical_inspections")
+        .insert({ case_id: caseId, mechanic_id: user?.id, performed_at: new Date().toISOString(), budget_name: name })
+        .select("id")
+        .single();
+      if (insErr || !inspection) {
+        setError(insErr?.message || "Não foi possível criar o orçamento.");
+        return;
+      }
+
+      const { data: insertedItems, error: itemsErr } = await supabase
+        .from("mechanical_items")
+        .insert(
+          items.map((it) => ({
+            inspection_id: inspection.id,
+            description: it.description,
+            estimated_cost: it.totalPrice,
+            task_number: it.taskNumber,
+            task_name: it.taskName,
+            product_line: it.productLine,
+            part_number: it.partNumber,
+            quantity: it.quantity,
+            unit_price: it.unitPrice,
+            nature: it.nature,
+          }))
+        )
+        .select("id, description, task_number, task_name");
+      if (itemsErr) {
+        setError(itemsErr.message);
+        return;
+      }
+
+      await supabase.from("activity_log").insert([
+        {
+          case_id: caseId,
+          actor_id: user?.id,
+          actor_email: user?.email,
+          stage,
+          action: "orcamento_mecanico_anexado",
+          description: `Anexou o orçamento "${name}" da inspeção mecânica com ${
+            items.length
+          } item(ns), total ${currency(total)}.`,
+        },
+        ...(insertedItems ?? []).map((row) => ({
+          case_id: caseId,
+          actor_id: user?.id,
+          actor_email: user?.email,
+          stage,
+          action: "item_criado",
+          description: `Criou o item "${row.description}"${
+            row.task_number != null ? ` (Tarefa ${row.task_number}${row.task_name ? ` — ${row.task_name}` : ""})` : ""
+          } no orçamento "${name}" da inspeção mecânica.`,
+        })),
+      ]);
+
+      resetDraft();
+      await loadSavedBudgets();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro inesperado ao salvar o orçamento.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function completeStage() {
@@ -736,7 +746,7 @@ export function MechanicalInspectionPanel({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            disabled={!items || items.length === 0 || !budgetName.trim() || saving || disabled}
+            disabled={saving || disabled}
             onClick={saveDraftBudget}
             className="rounded-md border border-ekotruck-orange px-4 py-2 text-sm font-medium text-ekotruck-orange hover:bg-ekotruck-orange/10 disabled:opacity-50"
           >
