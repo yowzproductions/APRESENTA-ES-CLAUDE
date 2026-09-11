@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ParsedBudgetItem } from "@/lib/parseBudgetPdf";
 import { sanitizeFileName } from "@/lib/sanitizeFileName";
@@ -16,7 +16,13 @@ function parseCurrencyInput(raw: string): number {
   return digits === "" ? 0 : parseInt(digits, 10) / 100;
 }
 
-function blankItem(): ParsedBudgetItem {
+type Nature = "corretiva" | "preventiva";
+
+// Item do rascunho: tudo que o parser do PDF já entrega, mais a natureza
+// (corretiva/preventiva), que não vem do PDF e é marcada manualmente aqui.
+type DraftItem = ParsedBudgetItem & { nature: Nature };
+
+function blankItem(): DraftItem {
   return {
     taskNumber: null,
     taskName: "",
@@ -26,6 +32,7 @@ function blankItem(): ParsedBudgetItem {
     quantity: 1,
     unitPrice: 0,
     totalPrice: 0,
+    nature: "corretiva",
   };
 }
 
@@ -35,6 +42,13 @@ function taskKey(taskNumber: number | null, taskName: string) {
 
 const NONE_TASK = "__none__";
 const NEW_TASK = "__new__";
+
+interface SavedBudget {
+  id: string;
+  name: string;
+  itemCount: number;
+  total: number;
+}
 
 export function MechanicalInspectionPanel({
   caseId,
@@ -47,9 +61,17 @@ export function MechanicalInspectionPanel({
   onCompleted: () => Promise<void> | void;
   disabled: boolean;
 }) {
+  const [loadingSaved, setLoadingSaved] = useState(true);
+  const [savedBudgets, setSavedBudgets] = useState<SavedBudget[]>([]);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [completing, setCompleting] = useState(false);
+
+  // Rascunho do orçamento sendo montado agora (um PDF, um nome, seus itens) —
+  // só vira registro no banco quando o usuário clica em "Salvar este orçamento".
+  const [budgetName, setBudgetName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null);
-  const [items, setItems] = useState<ParsedBudgetItem[] | null>(null);
+  const [items, setItems] = useState<DraftItem[] | null>(null);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +89,69 @@ export function MechanicalInspectionPanel({
   const [addTaskChoice, setAddTaskChoice] = useState<string>(NONE_TASK);
   const [addTaskNewNumber, setAddTaskNewNumber] = useState("");
   const [addTaskNewName, setAddTaskNewName] = useState("");
+
+  async function loadSavedBudgets() {
+    setLoadingSaved(true);
+    const supabase = createClient();
+    const { data: inspections } = await supabase
+      .from("mechanical_inspections")
+      .select("id, budget_name, created_at")
+      .eq("case_id", caseId)
+      .order("created_at", { ascending: true });
+
+    const ids = (inspections ?? []).map((i) => i.id);
+    const statsByInspection = new Map<string, { count: number; total: number }>();
+    if (ids.length > 0) {
+      const { data: mechItems } = await supabase
+        .from("mechanical_items")
+        .select("inspection_id, estimated_cost")
+        .in("inspection_id", ids);
+      for (const it of mechItems ?? []) {
+        const cur = statsByInspection.get(it.inspection_id) ?? { count: 0, total: 0 };
+        cur.count += 1;
+        cur.total += it.estimated_cost;
+        statsByInspection.set(it.inspection_id, cur);
+      }
+    }
+
+    setSavedBudgets(
+      (inspections ?? []).map((i) => ({
+        id: i.id,
+        name: i.budget_name || "Orçamento sem nome",
+        itemCount: statsByInspection.get(i.id)?.count ?? 0,
+        total: statsByInspection.get(i.id)?.total ?? 0,
+      }))
+    );
+    setLoadingSaved(false);
+  }
+
+  useEffect(() => {
+    loadSavedBudgets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caseId]);
+
+  async function removeSavedBudget(budget: SavedBudget) {
+    setError(null);
+    const supabase = createClient();
+    const { error: delErr } = await supabase.from("mechanical_inspections").delete().eq("id", budget.id);
+    if (delErr) {
+      setError(delErr.message);
+      return;
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    await supabase.from("activity_log").insert({
+      case_id: caseId,
+      actor_id: user?.id,
+      actor_email: user?.email,
+      stage,
+      action: "orcamento_mecanico_removido",
+      description: `Removeu o orçamento "${budget.name}" da inspeção mecânica (${budget.itemCount} item(ns)).`,
+    });
+    setRemovingId(null);
+    await loadSavedBudgets();
+  }
 
   async function analyze() {
     if (!file) return;
@@ -100,7 +185,7 @@ export function MechanicalInspectionPanel({
         setError(data.error || `Erro ao ler o PDF (HTTP ${res.status}).`);
         return;
       }
-      setItems(data.items ?? []);
+      setItems((data.items ?? []).map((it) => ({ ...it, nature: "corretiva" as Nature })));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao enviar o PDF.");
     } finally {
@@ -108,7 +193,7 @@ export function MechanicalInspectionPanel({
     }
   }
 
-  function updateItem(index: number, patch: Partial<ParsedBudgetItem>) {
+  function updateItem(index: number, patch: Partial<DraftItem>) {
     setItems((prev) => {
       if (!prev) return prev;
       const next = [...prev];
@@ -119,6 +204,17 @@ export function MechanicalInspectionPanel({
         merged.totalPrice = Math.round(merged.quantity * merged.unitPrice * 100) / 100;
       }
       next[index] = merged;
+      return next;
+    });
+  }
+
+  // Marca a natureza de todos os itens de uma tarefa de uma vez (atalho); o
+  // operador ainda pode ajustar item a item depois.
+  function setGroupNature(entries: { index: number }[], nature: Nature) {
+    setItems((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      for (const { index } of entries) next[index] = { ...next[index], nature };
       return next;
     });
   }
@@ -177,7 +273,7 @@ export function MechanicalInspectionPanel({
     reactKey: string;
     taskNumber: number | null;
     taskName: string;
-    entries: { item: ParsedBudgetItem; index: number }[];
+    entries: { item: DraftItem; index: number }[];
   }[] = [];
   if (items) {
     const map = new Map<string, (typeof groups)[number]>();
@@ -225,8 +321,21 @@ export function MechanicalInspectionPanel({
     return list;
   })();
 
-  async function confirmAndComplete() {
+  function resetDraft() {
+    setBudgetName("");
+    setFile(null);
+    setUploadedPath(null);
+    setItems(null);
+    setTaskDefs([]);
+    setAddTaskChoice(NONE_TASK);
+  }
+
+  async function saveDraftBudget() {
     if (!uploadedPath || !items || items.length === 0) return;
+    if (!budgetName.trim()) {
+      setError('Dê um nome para este orçamento (ex.: "Motor", "Câmbio") antes de salvar.');
+      return;
+    }
     setSaving(true);
     setError(null);
     const supabase = createClient();
@@ -244,33 +353,23 @@ export function MechanicalInspectionPanel({
       uploaded_by: user?.id,
     });
 
-    let { data: inspection } = await supabase
+    const name = budgetName.trim();
+    const { data: inspection, error: insErr } = await supabase
       .from("mechanical_inspections")
+      .insert({ case_id: caseId, mechanic_id: user?.id, performed_at: new Date().toISOString(), budget_name: name })
       .select("id")
-      .eq("case_id", caseId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (!inspection) {
-      const { data: created, error: insErr } = await supabase
-        .from("mechanical_inspections")
-        .insert({ case_id: caseId, mechanic_id: user?.id, performed_at: new Date().toISOString() })
-        .select("id")
-        .single();
-      if (insErr) {
-        setError(insErr.message);
-        setSaving(false);
-        return;
-      }
-      inspection = created;
+      .single();
+    if (insErr) {
+      setError(insErr.message);
+      setSaving(false);
+      return;
     }
 
     const { data: insertedItems, error: itemsErr } = await supabase
       .from("mechanical_items")
       .insert(
         items.map((it) => ({
-          inspection_id: inspection!.id,
+          inspection_id: inspection.id,
           description: it.description,
           estimated_cost: it.totalPrice,
           task_number: it.taskNumber,
@@ -279,6 +378,7 @@ export function MechanicalInspectionPanel({
           part_number: it.partNumber,
           quantity: it.quantity,
           unit_price: it.unitPrice,
+          nature: it.nature,
         }))
       )
       .select("id, description, task_number, task_name");
@@ -295,7 +395,9 @@ export function MechanicalInspectionPanel({
         actor_email: user?.email,
         stage,
         action: "orcamento_mecanico_anexado",
-        description: `Anexou orçamento da inspeção mecânica com ${items.length} item(ns), total ${currency(total)}.`,
+        description: `Anexou o orçamento "${name}" da inspeção mecânica com ${items.length} item(ns), total ${currency(
+          total
+        )}.`,
       },
       ...(insertedItems ?? []).map((row) => ({
         case_id: caseId,
@@ -305,12 +407,19 @@ export function MechanicalInspectionPanel({
         action: "item_criado",
         description: `Criou o item "${row.description}"${
           row.task_number != null ? ` (Tarefa ${row.task_number}${row.task_name ? ` — ${row.task_name}` : ""})` : ""
-        } no orçamento da inspeção mecânica.`,
+        } no orçamento "${name}" da inspeção mecânica.`,
       })),
     ]);
 
     setSaving(false);
+    resetDraft();
+    await loadSavedBudgets();
+  }
+
+  async function completeStage() {
+    setCompleting(true);
     await onCompleted();
+    setCompleting(false);
   }
 
   const addItemControls = (
@@ -360,190 +469,298 @@ export function MechanicalInspectionPanel({
   );
 
   return (
-    <div className="space-y-3">
-      <div>
-        <label className="mb-1 block text-xs font-medium">
-          PDF do orçamento (espelho de negociação)
-        </label>
-        <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-4">
+      <p className="text-sm text-ekotruck-gray">
+        Alguns serviços geram mais de um orçamento no mesmo processo (ex.: motor, câmbio). Anexe um PDF de cada vez e
+        dê um nome a cada orçamento para facilitar o entendimento mais adiante.
+      </p>
+
+      {!loadingSaved && savedBudgets.length > 0 && (
+        <div className="space-y-2">
+          {savedBudgets.map((b) => (
+            <div
+              key={b.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ekotruck-darkGreen/10 bg-ekotruck-mint/10 px-3 py-2 text-sm"
+            >
+              <span>
+                📎 <span className="font-medium">{b.name}</span> — {b.itemCount} item(ns) —{" "}
+                <span className="font-medium">{currency(b.total)}</span>
+              </span>
+              {removingId === b.id ? (
+                <span className="flex items-center gap-2 text-xs">
+                  Remover este orçamento?
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => removeSavedBudget(b)}
+                    className="font-medium text-red-600 hover:underline"
+                  >
+                    confirmar
+                  </button>
+                  <button type="button" onClick={() => setRemovingId(null)} className="text-ekotruck-gray hover:underline">
+                    cancelar
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => setRemovingId(b.id)}
+                  className="text-xs text-red-600 hover:underline"
+                >
+                  remover
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-3 rounded-md border border-dashed border-ekotruck-darkGreen/20 p-3">
+        <p className="text-xs font-medium uppercase text-ekotruck-gray">
+          {savedBudgets.length > 0 ? "Adicionar outro orçamento" : "Adicionar orçamento"}
+        </p>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium">Nome do orçamento (ex.: Motor, Câmbio)</label>
           <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              setUploadedPath(null);
-              setItems(null);
-            }}
-            className="block text-sm"
+            type="text"
+            value={budgetName}
+            onChange={(e) => setBudgetName(e.target.value)}
+            disabled={saving || disabled}
+            placeholder="Nome do orçamento"
+            className="w-64 rounded border px-2 py-1.5 text-sm"
           />
-          <button
-            type="button"
-            disabled={!file || parsing || disabled}
-            onClick={analyze}
-            className="rounded-md border px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
-          >
-            {parsing ? "Analisando..." : "Analisar PDF"}
-          </button>
-          {!creatingTask && (
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium">PDF do orçamento (espelho de negociação)</label>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null);
+                setUploadedPath(null);
+                setItems(null);
+              }}
+              className="block text-sm"
+            />
             <button
               type="button"
-              disabled={saving || disabled}
-              onClick={() => setCreatingTask(true)}
+              disabled={!file || parsing || disabled}
+              onClick={analyze}
               className="rounded-md border px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
             >
-              + Criar tarefa
+              {parsing ? "Analisando..." : "Analisar PDF"}
             </button>
-          )}
-          {creatingTask && (
-            <div className="flex items-center gap-2 rounded-md border border-dashed px-2 py-1">
-              <input
-                type="number"
-                placeholder="nº"
-                value={newTaskNumber}
-                onChange={(e) => setNewTaskNumber(e.target.value)}
-                className="w-16 rounded border px-1 py-1 text-sm"
-              />
-              <input
-                type="text"
-                placeholder="nome da tarefa"
-                value={newTaskName}
-                onChange={(e) => setNewTaskName(e.target.value)}
-                className="w-40 rounded border px-1 py-1 text-sm"
-              />
+            {!creatingTask && (
               <button
                 type="button"
-                onClick={saveNewTask}
-                className="rounded-md bg-ekotruck-orange px-3 py-1 text-sm font-medium text-white hover:opacity-90"
+                disabled={saving || disabled}
+                onClick={() => setCreatingTask(true)}
+                className="rounded-md border px-3 py-1.5 text-sm hover:bg-ekotruck-darkGreen/5 disabled:opacity-50"
               >
-                Salvar
+                + Criar tarefa
               </button>
-              <button type="button" onClick={cancelNewTask} className="text-sm text-ekotruck-gray hover:underline">
-                cancelar
-              </button>
+            )}
+            {creatingTask && (
+              <div className="flex items-center gap-2 rounded-md border border-dashed px-2 py-1">
+                <input
+                  type="number"
+                  placeholder="nº"
+                  value={newTaskNumber}
+                  onChange={(e) => setNewTaskNumber(e.target.value)}
+                  className="w-16 rounded border px-1 py-1 text-sm"
+                />
+                <input
+                  type="text"
+                  placeholder="nome da tarefa"
+                  value={newTaskName}
+                  onChange={(e) => setNewTaskName(e.target.value)}
+                  className="w-40 rounded border px-1 py-1 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={saveNewTask}
+                  className="rounded-md bg-ekotruck-orange px-3 py-1 text-sm font-medium text-white hover:opacity-90"
+                >
+                  Salvar
+                </button>
+                <button type="button" onClick={cancelNewTask} className="text-sm text-ekotruck-gray hover:underline">
+                  cancelar
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        {(!items || items.length === 0) && addItemControls}
+
+        {items && items.length > 0 && (
+          <div className="overflow-x-auto rounded-md border border-ekotruck-darkGreen/10">
+            <table className="w-full text-xs">
+              <thead className="bg-ekotruck-darkGreen/5 text-left uppercase text-ekotruck-gray">
+                <tr>
+                  <th className="px-2 py-1.5">Tarefa</th>
+                  <th className="px-2 py-1.5">Linha</th>
+                  <th className="px-2 py-1.5">Partnumber</th>
+                  <th className="px-2 py-1.5">Descrição</th>
+                  <th className="px-2 py-1.5">Qtde.</th>
+                  <th className="px-2 py-1.5">Preço Unit.</th>
+                  <th className="px-2 py-1.5">Preço Total</th>
+                  <th className="px-2 py-1.5">Natureza</th>
+                  <th className="px-2 py-1.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((g) => {
+                  const subtotal = g.entries.reduce((s, e) => s + e.item.totalPrice, 0);
+                  return (
+                    <Fragment key={g.reactKey}>
+                      <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-mint/20">
+                        <td colSpan={7} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
+                          {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : "Sem tarefa"}
+                          {g.taskName ? ` — ${g.taskName}` : ""}
+                        </td>
+                        <td colSpan={2} className="px-2 py-1.5">
+                          <select
+                            defaultValue=""
+                            disabled={saving || disabled}
+                            onChange={(e) => {
+                              if (e.target.value) setGroupNature(g.entries, e.target.value as Nature);
+                              e.target.value = "";
+                            }}
+                            className="rounded border px-1 py-0.5 text-xs"
+                          >
+                            <option value="">Marcar tarefa toda...</option>
+                            <option value="corretiva">Corretiva</option>
+                            <option value="preventiva">Preventiva</option>
+                          </select>
+                        </td>
+                      </tr>
+                      {g.entries.map(({ item: it, index: idx }) => (
+                        <tr key={idx} className="border-t border-ekotruck-darkGreen/10">
+                          {/* Tarefa não aparece por item — já está definida pelo
+                              quadro (grupo) acima, onde o item está posicionado. */}
+                          <td className="px-2 py-1.5 align-top"></td>
+                          <td className="px-2 py-1.5 align-top">
+                            <input
+                              type="text"
+                              value={it.productLine}
+                              onChange={(e) => updateItem(idx, { productLine: e.target.value })}
+                              className="w-14 rounded border px-1 py-0.5"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
+                            <input
+                              type="text"
+                              value={it.partNumber}
+                              onChange={(e) => updateItem(idx, { partNumber: e.target.value })}
+                              className="w-24 rounded border px-1 py-0.5"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
+                            <input
+                              type="text"
+                              value={it.description}
+                              onChange={(e) => updateItem(idx, { description: e.target.value })}
+                              className="w-40 rounded border px-1 py-0.5"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={it.quantity}
+                              onChange={(e) => updateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                              className="w-16 rounded border px-1 py-0.5"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={currency(it.unitPrice)}
+                              onChange={(e) => updateItem(idx, { unitPrice: parseCurrencyInput(e.target.value) })}
+                              className="w-24 rounded border px-1 py-0.5"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 align-top">{currency(it.totalPrice)}</td>
+                          <td className="px-2 py-1.5 align-top">
+                            <select
+                              value={it.nature}
+                              disabled={saving || disabled}
+                              onChange={(e) => updateItem(idx, { nature: e.target.value as Nature })}
+                              className="rounded border px-1 py-0.5"
+                            >
+                              <option value="corretiva">Corretiva</option>
+                              <option value="preventiva">Preventiva</option>
+                            </select>
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
+                            <button
+                              type="button"
+                              onClick={() => removeItem(idx)}
+                              className="text-red-600 hover:underline"
+                            >
+                              remover
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5">
+                        <td colSpan={6}></td>
+                        <td colSpan={3} className="px-2 py-1.5 text-right font-medium">
+                          Subtotal: {currency(subtotal)}
+                        </td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
+                <tr className="border-t border-ekotruck-darkGreen/10">
+                  <td colSpan={9} className="px-2 py-1.5">
+                    {addItemControls}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="flex justify-end border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5 px-3 py-2 text-sm font-semibold">
+              Total: {currency(total)}
             </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={!items || items.length === 0 || !budgetName.trim() || saving || disabled}
+            onClick={saveDraftBudget}
+            className="rounded-md border border-ekotruck-orange px-4 py-2 text-sm font-medium text-ekotruck-orange hover:bg-ekotruck-orange/10 disabled:opacity-50"
+          >
+            {saving ? "Salvando..." : "Salvar este orçamento"}
+          </button>
+          {items && items.length > 0 && !saving && (
+            <button type="button" onClick={resetDraft} className="text-sm text-ekotruck-gray hover:underline">
+              descartar rascunho
+            </button>
           )}
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      {(!items || items.length === 0) && addItemControls}
-
-      {items && items.length > 0 && (
-        <div className="overflow-x-auto rounded-md border border-ekotruck-darkGreen/10">
-          <table className="w-full text-xs">
-            <thead className="bg-ekotruck-darkGreen/5 text-left uppercase text-ekotruck-gray">
-              <tr>
-                <th className="px-2 py-1.5">Tarefa</th>
-                <th className="px-2 py-1.5">Linha</th>
-                <th className="px-2 py-1.5">Partnumber</th>
-                <th className="px-2 py-1.5">Descrição</th>
-                <th className="px-2 py-1.5">Qtde.</th>
-                <th className="px-2 py-1.5">Preço Unit.</th>
-                <th className="px-2 py-1.5">Preço Total</th>
-                <th className="px-2 py-1.5"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((g) => {
-                const subtotal = g.entries.reduce((s, e) => s + e.item.totalPrice, 0);
-                return (
-                  <Fragment key={g.reactKey}>
-                    <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-mint/20">
-                      <td colSpan={8} className="px-2 py-1.5 font-semibold text-ekotruck-darkGreen">
-                        {g.taskNumber != null ? `Tarefa ${g.taskNumber}` : "Sem tarefa"}
-                        {g.taskName ? ` — ${g.taskName}` : ""}
-                      </td>
-                    </tr>
-                    {g.entries.map(({ item: it, index: idx }) => (
-                      <tr key={idx} className="border-t border-ekotruck-darkGreen/10">
-                        {/* Tarefa não aparece por item — já está definida pelo
-                            quadro (grupo) acima, onde o item está posicionado. */}
-                        <td className="px-2 py-1.5 align-top"></td>
-                        <td className="px-2 py-1.5 align-top">
-                          <input
-                            type="text"
-                            value={it.productLine}
-                            onChange={(e) => updateItem(idx, { productLine: e.target.value })}
-                            className="w-14 rounded border px-1 py-0.5"
-                          />
-                        </td>
-                        <td className="px-2 py-1.5 align-top">
-                          <input
-                            type="text"
-                            value={it.partNumber}
-                            onChange={(e) => updateItem(idx, { partNumber: e.target.value })}
-                            className="w-24 rounded border px-1 py-0.5"
-                          />
-                        </td>
-                        <td className="px-2 py-1.5 align-top">
-                          <input
-                            type="text"
-                            value={it.description}
-                            onChange={(e) => updateItem(idx, { description: e.target.value })}
-                            className="w-40 rounded border px-1 py-0.5"
-                          />
-                        </td>
-                        <td className="px-2 py-1.5 align-top">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={it.quantity}
-                            onChange={(e) => updateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
-                            className="w-16 rounded border px-1 py-0.5"
-                          />
-                        </td>
-                        <td className="px-2 py-1.5 align-top">
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={currency(it.unitPrice)}
-                            onChange={(e) => updateItem(idx, { unitPrice: parseCurrencyInput(e.target.value) })}
-                            className="w-24 rounded border px-1 py-0.5"
-                          />
-                        </td>
-                        <td className="px-2 py-1.5 align-top">{currency(it.totalPrice)}</td>
-                        <td className="px-2 py-1.5 align-top">
-                          <button
-                            type="button"
-                            onClick={() => removeItem(idx)}
-                            className="text-red-600 hover:underline"
-                          >
-                            remover
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5">
-                      <td colSpan={6}></td>
-                      <td colSpan={2} className="px-2 py-1.5 text-right font-medium">
-                        Subtotal: {currency(subtotal)}
-                      </td>
-                    </tr>
-                  </Fragment>
-                );
-              })}
-              <tr className="border-t border-ekotruck-darkGreen/10">
-                <td colSpan={8} className="px-2 py-1.5">
-                  {addItemControls}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div className="flex justify-end border-t border-ekotruck-darkGreen/10 bg-ekotruck-darkGreen/5 px-3 py-2 text-sm font-semibold">
-            Total: {currency(total)}
-          </div>
-        </div>
-      )}
-
       <button
         type="button"
-        disabled={!items || items.length === 0 || saving || disabled}
-        onClick={confirmAndComplete}
+        disabled={savedBudgets.length === 0 || completing || disabled}
+        onClick={completeStage}
         className="rounded-md bg-ekotruck-orange px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
       >
-        {saving ? "Salvando..." : "Confirmar orçamento e concluir etapa"}
+        {completing ? "Concluindo..." : "Concluir etapa"}
       </button>
+      {savedBudgets.length === 0 && (
+        <p className="text-xs text-ekotruck-gray">Salve pelo menos um orçamento para poder concluir a etapa.</p>
+      )}
     </div>
   );
 }

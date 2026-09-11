@@ -257,6 +257,7 @@ export interface PartReportRow {
   supplier: string | null;
   outsourced: boolean;
   outsourcedTo: string | null;
+  nature: string;
 }
 
 // Relatório de peças (orçadas → moderadas → otimizadas) cruzando todos os
@@ -327,6 +328,7 @@ export async function getPartsReportRows(): Promise<PartReportRow[]> {
       supplier: it.supplier,
       outsourced: it.outsourced ?? false,
       outsourcedTo: it.outsourced_to,
+      nature: it.nature || "corretiva",
     };
   });
 }
