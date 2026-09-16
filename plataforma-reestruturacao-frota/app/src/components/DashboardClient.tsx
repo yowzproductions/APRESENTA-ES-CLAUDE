@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FilterOption, ReturnCase } from "@/types/domain";
+import { FilterOption, PROCESS_TYPE_LABELS, ProcessType, ReturnCase } from "@/types/domain";
 import { KanbanBoard } from "./KanbanBoard";
 import { ListView } from "./ListView";
 import { ReportButton } from "./ReportButton";
@@ -16,6 +16,7 @@ export function DashboardClient({
   branches: FilterOption[];
 }) {
   const [view, setView] = useState<"kanban" | "lista">("kanban");
+  const [processType, setProcessType] = useState<ProcessType>("retomada");
   const [clientId, setClientId] = useState("");
   const [branchId, setBranchId] = useState("");
 
@@ -23,10 +24,11 @@ export function DashboardClient({
     () =>
       cases.filter(
         (c) =>
+          c.processType === processType &&
           (!clientId || c.clientId === clientId) &&
           (!branchId || c.branchId === branchId)
       ),
-    [cases, clientId, branchId]
+    [cases, processType, clientId, branchId]
   );
 
   return (
@@ -52,6 +54,20 @@ export function DashboardClient({
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex rounded-md border border-ekotruck-darkGreen/15 bg-white p-0.5 text-sm">
+          {(Object.keys(PROCESS_TYPE_LABELS) as ProcessType[]).map((pt) => (
+            <button
+              key={pt}
+              onClick={() => setProcessType(pt)}
+              className={`rounded px-3 py-1.5 ${
+                processType === pt ? "bg-ekotruck-orange text-white" : "text-ekotruck-gray"
+              }`}
+            >
+              {PROCESS_TYPE_LABELS[pt]}
+            </button>
+          ))}
+        </div>
+
         <div className="flex rounded-md border border-ekotruck-darkGreen/15 bg-white p-0.5 text-sm">
           <button
             onClick={() => setView("kanban")}
@@ -98,7 +114,11 @@ export function DashboardClient({
         </select>
       </div>
 
-      {view === "kanban" ? <KanbanBoard cases={filtered} /> : <ListView cases={filtered} />}
+      {view === "kanban" ? (
+        <KanbanBoard cases={filtered} processType={processType} />
+      ) : (
+        <ListView cases={filtered} />
+      )}
     </div>
   );
 }

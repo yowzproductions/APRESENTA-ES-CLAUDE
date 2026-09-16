@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { FilterOption } from "@/types/domain";
+import { FilterOption, ProcessType } from "@/types/domain";
 
 export default function NovoCaso() {
   const router = useRouter();
@@ -11,6 +11,7 @@ export default function NovoCaso() {
   const [message, setMessage] = useState("");
   const [branches, setBranches] = useState<FilterOption[]>([]);
   const [clients, setClients] = useState<FilterOption[]>([]);
+  const [processType, setProcessType] = useState<ProcessType>("retomada");
 
   useEffect(() => {
     const supabase = createClient();
@@ -58,6 +59,7 @@ export default function NovoCaso() {
         client_id: clientId,
         branch_id: branchId,
         status: "cadastrado",
+        process_type: processType,
         created_by: user?.id,
       })
       .select()
@@ -69,7 +71,9 @@ export default function NovoCaso() {
       actor_id: user?.id,
       actor_email: user?.email,
       action: "cadastro_caso",
-      description: `Cadastrou o veículo ${plate}.`,
+      description: `Cadastrou o veículo ${plate} — processo de ${
+        processType === "ativacao" ? "Ativação" : "Retomada"
+      }.`,
     });
 
     router.push(`/casos/${newCase.id}`);
@@ -92,6 +96,39 @@ export default function NovoCaso() {
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border bg-white p-6">
+        <div>
+          <label className="mb-1 block text-sm font-medium">Tipo de processo</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setProcessType("retomada")}
+              className={`rounded-md border px-3 py-2 text-left text-sm ${
+                processType === "retomada"
+                  ? "border-ekotruck-orange bg-ekotruck-orange/10 font-medium"
+                  : "border-ekotruck-darkGreen/15"
+              }`}
+            >
+              Retomada
+              <p className="text-xs font-normal text-ekotruck-gray">
+                Fluxo completo: vistoria, inspeção mecânica, orçamento, otimização e execução.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setProcessType("ativacao")}
+              className={`rounded-md border px-3 py-2 text-left text-sm ${
+                processType === "ativacao"
+                  ? "border-ekotruck-orange bg-ekotruck-orange/10 font-medium"
+                  : "border-ekotruck-darkGreen/15"
+              }`}
+            >
+              Ativação
+              <p className="text-xs font-normal text-ekotruck-gray">
+                Fluxo curto: cadastro, programação, vistoria e finalização.
+              </p>
+            </button>
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="mb-1 block text-sm font-medium">Placa</label>

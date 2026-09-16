@@ -55,6 +55,15 @@ export default async function CaseDetail({ params }: { params: { id: string } })
             <p className="text-sm text-ekotruck-gray">Cliente: {c.clientName}</p>
           </div>
           <div className="flex items-center gap-3">
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                c.processType === "ativacao"
+                  ? "bg-sky-100 text-sky-700"
+                  : "bg-ekotruck-darkGreen/10 text-ekotruck-darkGreen"
+              }`}
+            >
+              {c.processType === "ativacao" ? "Ativação" : "Retomada"}
+            </span>
             <StatusBadge status={c.status} />
             <DeleteCaseButton
               caseId={c.id}
@@ -74,6 +83,7 @@ export default async function CaseDetail({ params }: { params: { id: string } })
         <h2 className="mb-3 font-medium text-ekotruck-darkGreen">Progresso do caso</h2>
         <StageStepper
           caseId={c.id}
+          processType={c.processType}
           progress={progress}
           attachments={attachmentsByStage}
           access={stageAccess}
@@ -81,51 +91,55 @@ export default async function CaseDetail({ params }: { params: { id: string } })
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <section className="rounded-lg border bg-white p-4">
-          <h2 className="mb-2 font-medium">Orçamento unificado</h2>
-          <p className="text-sm text-ekotruck-gray">
-            Preço base (checklist + inspeção mecânica, sem duplicidade):
-          </p>
-          <p className="mt-1 text-lg font-semibold">{currency(c.baseTotal)}</p>
-        </section>
-
-        <section className="rounded-lg border bg-white p-4">
-          <h2 className="mb-2 font-medium">Otimização de orçamento — impacto</h2>
-          <div className="grid grid-cols-4 gap-2 text-center">
-            <div>
-              <p className="text-xs text-ekotruck-gray">Orçamento base</p>
-              <p className="text-sm font-semibold">{currency(c.baseTotal)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-ekotruck-gray">Orçamento moderado</p>
-              <p className="text-sm font-semibold">{currency(moderatedTotal)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-ekotruck-gray">Valores otimizados</p>
-              <p className="text-sm font-semibold">{currency(c.finalTotal)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-ekotruck-gray">Economia</p>
-              <p className="text-sm font-semibold text-emerald-600">{currency(savings)}</p>
-            </div>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-center">
-            <div>
-              <p className="text-xs text-ekotruck-gray">Imprevistos (execução)</p>
-              <p
-                className={`text-sm font-semibold ${
-                  incidentsNet > 0 ? "text-red-600" : incidentsNet < 0 ? "text-emerald-600" : ""
-                }`}
-              >
-                {currency(c.incidentsNet)}
+        {c.processType === "retomada" && (
+          <>
+            <section className="rounded-lg border bg-white p-4">
+              <h2 className="mb-2 font-medium">Orçamento unificado</h2>
+              <p className="text-sm text-ekotruck-gray">
+                Preço base (checklist + inspeção mecânica, sem duplicidade):
               </p>
-            </div>
-            <div>
-              <p className="text-xs text-ekotruck-gray">Conta final do veículo</p>
-              <p className="text-sm font-semibold">{currency(vehicleAccountTotal)}</p>
-            </div>
-          </div>
-        </section>
+              <p className="mt-1 text-lg font-semibold">{currency(c.baseTotal)}</p>
+            </section>
+
+            <section className="rounded-lg border bg-white p-4">
+              <h2 className="mb-2 font-medium">Otimização de orçamento — impacto</h2>
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div>
+                  <p className="text-xs text-ekotruck-gray">Orçamento base</p>
+                  <p className="text-sm font-semibold">{currency(c.baseTotal)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-ekotruck-gray">Orçamento moderado</p>
+                  <p className="text-sm font-semibold">{currency(moderatedTotal)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-ekotruck-gray">Valores otimizados</p>
+                  <p className="text-sm font-semibold">{currency(c.finalTotal)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-ekotruck-gray">Economia</p>
+                  <p className="text-sm font-semibold text-emerald-600">{currency(savings)}</p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-center">
+                <div>
+                  <p className="text-xs text-ekotruck-gray">Imprevistos (execução)</p>
+                  <p
+                    className={`text-sm font-semibold ${
+                      incidentsNet > 0 ? "text-red-600" : incidentsNet < 0 ? "text-emerald-600" : ""
+                    }`}
+                  >
+                    {currency(c.incidentsNet)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-ekotruck-gray">Conta final do veículo</p>
+                  <p className="text-sm font-semibold">{currency(vehicleAccountTotal)}</p>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
 
         <details className="rounded-lg border bg-white p-4 md:col-span-2">
           <summary className="cursor-pointer font-medium marker:text-ekotruck-gray">

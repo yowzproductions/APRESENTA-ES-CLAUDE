@@ -1,4 +1,4 @@
-import { ReturnCase, STAGE_ORDER } from "@/types/domain";
+import { ProcessType, ReturnCase, getStageOrder } from "@/types/domain";
 import { StatusBadge } from "./StatusBadge";
 
 function isOverdue(dueAt: string | null) {
@@ -6,21 +6,27 @@ function isOverdue(dueAt: string | null) {
   return new Date(dueAt).getTime() < Date.now();
 }
 
-function statusToStageIndex(status: ReturnCase["status"]) {
-  const idx = STAGE_ORDER.findIndex((s) => s.status === status);
+function statusToStageIndex(status: ReturnCase["status"], stageOrder: { status: string; label: string }[]) {
+  const idx = stageOrder.findIndex((s) => s.status === status);
   if (idx !== -1) return idx;
-  // status intermediários (ex.: *_concluida) caem na etapa correspondente
-  if (status.startsWith("vistoria")) return 2;
-  if (status.startsWith("inspecao_mecanica")) return 3;
-  if (status.startsWith("aprovado") || status.startsWith("reprovado")) return 5;
-  if (status.startsWith("otimizacao")) return 6;
+  // status intermediários (ex.: *_concluida) caem na etapa correspondente,
+  // quando ela existir no fluxo deste tipo de processo.
+  const fallback = (target: string) => {
+    const i = stageOrder.findIndex((s) => s.status === target);
+    return i !== -1 ? i : 0;
+  };
+  if (status.startsWith("vistoria")) return fallback("vistoria_em_andamento");
+  if (status.startsWith("inspecao_mecanica")) return fallback("inspecao_mecanica_em_andamento");
+  if (status.startsWith("aprovado") || status.startsWith("reprovado")) return fallback("aguardando_aprovacao_cliente");
+  if (status.startsWith("otimizacao")) return fallback("em_otimizacao");
   return 0;
 }
 
-export function KanbanBoard({ cases }: { cases: ReturnCase[] }) {
-  const columns = STAGE_ORDER.map((stage, i) => ({
+export function KanbanBoard({ cases, processType }: { cases: ReturnCase[]; processType: ProcessType }) {
+  const stageOrder = getStageOrder(processType);
+  const columns = stageOrder.map((stage, i) => ({
     ...stage,
-    cases: cases.filter((c) => statusToStageIndex(c.status) === i),
+    cases: cases.filter((c) => statusToStageIndex(c.status, stageOrder) === i),
   }));
 
   return (
