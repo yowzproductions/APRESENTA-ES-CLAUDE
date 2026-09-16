@@ -15,7 +15,9 @@ export type CaseStatus =
   | "finalizado"
   | "cancelado";
 
-export const STAGE_ORDER: { status: CaseStatus; label: string }[] = [
+// Processo de Retomada: fluxo completo (devolução de frota, com orçamento,
+// otimização e execução).
+export const RETOMADA_STAGE_ORDER: { status: CaseStatus; label: string }[] = [
   { status: "cadastrado", label: "Cadastro" },
   { status: "agendado", label: "Programação de Entrega" },
   { status: "vistoria_em_andamento", label: "Vistoria" },
@@ -27,6 +29,31 @@ export const STAGE_ORDER: { status: CaseStatus; label: string }[] = [
   { status: "finalizado", label: "Finalizado" },
 ];
 
+// Mantido por compatibilidade — sempre o fluxo de Retomada. Prefira
+// getStageOrder(processType) em código novo, que já leva o tipo em conta.
+export const STAGE_ORDER = RETOMADA_STAGE_ORDER;
+
+// Processo de Ativação: fluxo curto (cadastro → programação → vistoria →
+// finalizado), sem orçamento nem otimização — reaproveita os mesmos módulos
+// das etapas iniciais do processo de Retomada.
+export const ATIVACAO_STAGE_ORDER: { status: CaseStatus; label: string }[] = [
+  { status: "cadastrado", label: "Cadastro" },
+  { status: "agendado", label: "Programação de Entrega" },
+  { status: "vistoria_em_andamento", label: "Vistoria" },
+  { status: "finalizado", label: "Finalizado" },
+];
+
+export type ProcessType = "retomada" | "ativacao";
+
+export const PROCESS_TYPE_LABELS: Record<ProcessType, string> = {
+  retomada: "Retomada",
+  ativacao: "Ativação",
+};
+
+export function getStageOrder(processType: ProcessType): { status: CaseStatus; label: string }[] {
+  return processType === "ativacao" ? ATIVACAO_STAGE_ORDER : RETOMADA_STAGE_ORDER;
+}
+
 export interface ReturnCase {
   id: string;
   vehiclePlate: string;
@@ -36,6 +63,7 @@ export interface ReturnCase {
   clientName: string;
   branchId: string | null;
   branchName: string | null;
+  processType: ProcessType;
   status: CaseStatus;
   scheduledAt: string | null;
   dueAt: string | null;

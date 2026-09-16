@@ -1,12 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
-import { CaseStatus, FilterOption, ReturnCase } from "@/types/domain";
+import { CaseStatus, FilterOption, ProcessType, ReturnCase } from "@/types/domain";
 
 export async function getCases(): Promise<ReturnCase[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("return_cases")
     .select(
-      `id, status, scheduled_at, client_id, branch_id,
+      `id, status, process_type, scheduled_at, client_id, branch_id,
        vehicles ( plate, chassis, model ),
        clients ( name ),
        branches ( name ),
@@ -72,6 +72,7 @@ export async function getCases(): Promise<ReturnCase[]> {
     clientName: row.clients?.name ?? "—",
     branchId: row.branch_id,
     branchName: row.branches?.name ?? null,
+    processType: (row.process_type as ProcessType) || "retomada",
     status: row.status as CaseStatus,
     scheduledAt: row.scheduled_at,
     dueAt: dueByCase.get(`${row.id}:${row.status}`) ?? null,

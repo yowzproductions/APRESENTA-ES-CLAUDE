@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { CaseStatus, STAGE_ORDER } from "@/types/domain";
+import { CaseStatus, ProcessType, getStageOrder } from "@/types/domain";
 import { StageAccess, StageAttachment, StageProgress, StageState } from "@/lib/data";
 import { sanitizeFileName } from "@/lib/sanitizeFileName";
 import { MechanicalInspectionPanel } from "./MechanicalInspectionPanel";
@@ -45,16 +45,19 @@ function fmt(d: string | null) {
 
 export function StageStepper({
   caseId,
+  processType,
   progress,
   attachments,
   access,
 }: {
   caseId: string;
+  processType: ProcessType;
   progress: Record<string, StageProgress>;
   attachments: Record<string, StageAttachment[]>;
   access?: Record<string, StageAccess>;
 }) {
   const router = useRouter();
+  const STAGE_ORDER = getStageOrder(processType);
   const [busyStage, setBusyStage] = useState<string | null>(null);
   const [dueDrafts, setDueDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
