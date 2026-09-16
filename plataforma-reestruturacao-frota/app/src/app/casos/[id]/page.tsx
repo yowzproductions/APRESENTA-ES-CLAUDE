@@ -127,9 +127,14 @@ export default async function CaseDetail({ params }: { params: { id: string } })
           </div>
         </section>
 
-        <section className="rounded-lg border bg-white p-4 md:col-span-2">
-          <h2 className="mb-3 font-medium">Histórico de movimentações</h2>
-          <ul className="space-y-2">
+        <details className="rounded-lg border bg-white p-4 md:col-span-2">
+          <summary className="cursor-pointer font-medium marker:text-ekotruck-gray">
+            Histórico de movimentações
+            <span className="ml-2 text-xs font-normal text-ekotruck-gray">
+              ({activity.length} registro{activity.length === 1 ? "" : "s"})
+            </span>
+          </summary>
+          <ul className="mt-3 space-y-2">
             {activity.map((a) => (
               <li key={a.id} className="flex items-start justify-between gap-4 text-sm">
                 <div>
@@ -152,7 +157,7 @@ export default async function CaseDetail({ params }: { params: { id: string } })
               <li className="text-sm text-ekotruck-gray">Nenhuma movimentação registrada ainda.</li>
             )}
           </ul>
-        </section>
+        </details>
       </div>
     </div>
   );
