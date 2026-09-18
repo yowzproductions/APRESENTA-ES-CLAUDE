@@ -38,7 +38,7 @@ export const STAGE_ORDER = RETOMADA_STAGE_ORDER;
 // das etapas iniciais do processo de Retomada.
 export const ATIVACAO_STAGE_ORDER: { status: CaseStatus; label: string }[] = [
   { status: "cadastrado", label: "Cadastro" },
-  { status: "agendado", label: "Programação de Entrega" },
+  { status: "agendado", label: "Programação de Vistoria" },
   { status: "vistoria_em_andamento", label: "Vistoria" },
   { status: "finalizado", label: "Finalizado" },
 ];
