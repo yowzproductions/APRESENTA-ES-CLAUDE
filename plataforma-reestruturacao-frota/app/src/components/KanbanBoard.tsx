@@ -54,14 +54,18 @@ export function KanbanBoard({ cases, processType }: { cases: ReturnCase[]; proce
                 </div>
                 <p className="mt-0.5 text-xs text-ekotruck-gray">{c.vehicleModel}</p>
                 <p className="text-xs text-ekotruck-gray">{c.clientName}</p>
-                <div className="mt-2">
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <StatusBadge status={c.status} />
+                  {c.dueAt && (
+                    <span
+                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                        isOverdue(c.dueAt) ? "bg-red-100 text-red-700" : "bg-sky-100 text-sky-700"
+                      }`}
+                    >
+                      🚩 Agendado: {new Date(c.dueAt).toLocaleDateString("pt-BR")}
+                    </span>
+                  )}
                 </div>
-                {c.dueAt && (
-                  <p className="mt-2 text-[11px] text-ekotruck-gray">
-                    Prazo: {new Date(c.dueAt).toLocaleDateString("pt-BR")}
-                  </p>
-                )}
               </a>
             ))}
             {col.cases.length === 0 && (
